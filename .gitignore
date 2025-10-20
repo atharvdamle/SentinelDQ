@@ -1,6 +1,3 @@
-.env
-.venv
-ingestion/__pycache__/
-ingestion/consumers/__pycache__
-ingestion/producers/__pycache__
-tests/__pycache__/
+**/__pycache__/
+.*
+data
