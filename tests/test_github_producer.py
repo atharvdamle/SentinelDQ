@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 import json
 from ingestion.producers.github_producer import GitHubEventsProducer
 
+
 class TestGitHubEventsProducer(unittest.TestCase):
     def setUp(self):
         self.mock_env = {
@@ -29,7 +30,7 @@ class TestGitHubEventsProducer(unittest.TestCase):
 
         # Test fetch_events method
         events = self.producer.fetch_events()
-        
+
         # Verify results
         self.assertEqual(events, mock_events)
         mock_get.assert_called_once_with(
@@ -47,12 +48,11 @@ class TestGitHubEventsProducer(unittest.TestCase):
 
         # Test fetch_events method
         events = self.producer.fetch_events()
-        
+
         # Verify empty list is returned on error
         self.assertEqual(events, [])
 
-    @patch('confluent_kafka.Producer.produce')
-    def test_produce_events(self, mock_produce):
+    def test_produce_events(self):
         # Mock fetch_events to return test data
         test_events = [
             {'id': '1', 'type': 'PushEvent'},
@@ -60,17 +60,23 @@ class TestGitHubEventsProducer(unittest.TestCase):
         ]
         self.producer.fetch_events = MagicMock(return_value=test_events)
 
+        # Mock the Kafka producer instance's produce method
+        mock_producer = MagicMock()
+        self.producer.producer = mock_producer
+
         # Test produce_events method
         self.producer.produce_events()
 
         # Verify produce was called for each event
-        self.assertEqual(mock_produce.call_count, len(test_events))
-        
+        self.assertEqual(
+            mock_producer.produce.call_count, len(test_events))
+
         # Verify produce calls had correct arguments
-        calls = mock_produce.call_args_list
+        calls = mock_producer.produce.call_args_list
         for i, call in enumerate(calls):
             args, kwargs = call
-            self.assertEqual(kwargs['topic'], self.mock_env['KAFKA_TOPIC'])
+            # topic is first positional arg
+            self.assertEqual(args[0], self.mock_env['KAFKA_TOPIC'])
             self.assertEqual(kwargs['key'], str(test_events[i]['id']))
             self.assertEqual(kwargs['value'], json.dumps(test_events[i]))
 
@@ -89,6 +95,7 @@ class TestGitHubEventsProducer(unittest.TestCase):
         with self.assertLogs(level='ERROR') as log:
             self.producer.delivery_report(Exception('Delivery failed'), None)
             self.assertIn('Message delivery failed', log.output[0])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from ingestion.consumers.postgres_consumer import PostgresConsumer
 
+
 class TestPostgresConsumer(unittest.TestCase):
     def setUp(self):
         self.mock_env = {
@@ -55,7 +56,8 @@ class TestPostgresConsumer(unittest.TestCase):
         # Verify table creation query was executed
         mock_cursor.execute.assert_called_once()
         create_table_query = mock_cursor.execute.call_args[0][0]
-        self.assertIn('CREATE TABLE IF NOT EXISTS github_events', create_table_query)
+        self.assertIn('CREATE TABLE IF NOT EXISTS github_events',
+                      create_table_query)
         mock_connection.commit.assert_called_once()
 
     @patch('psycopg2.connect')
@@ -76,7 +78,7 @@ class TestPostgresConsumer(unittest.TestCase):
         mock_cursor.execute.assert_called()
         _, kwargs = mock_cursor.execute.call_args
         args = kwargs.get('parameters', mock_cursor.execute.call_args[0][1])
-        
+
         # Verify all required fields are present in the correct order
         self.assertEqual(args[0], self.mock_event['id'])
         self.assertEqual(args[1], self.mock_event['type'])
@@ -85,22 +87,20 @@ class TestPostgresConsumer(unittest.TestCase):
         self.assertEqual(args[4], self.mock_event['repo']['url'])
         self.assertEqual(args[5], self.mock_event['actor']['id'])
         self.assertEqual(args[6], self.mock_event['actor']['login'])
-        
+
         # Verify commit was called
         mock_connection.commit.assert_called_once()
 
     @patch('psycopg2.connect')
     def test_store_event_failure(self, mock_connect):
-        # Mock database error
+        with patch.dict('os.environ', self.mock_env):
+            with patch('psycopg2.connect', MagicMock()):
+                consumer = PostgresConsumer()
+
         mock_connect.side_effect = Exception('Database error')
 
-        # Initialize consumer
-        with patch.dict('os.environ', self.mock_env):
-            consumer = PostgresConsumer()
-            
-            # Verify store_event raises exception
-            with self.assertRaises(Exception):
-                consumer.store_event(self.mock_event)
+        with self.assertRaises(Exception):
+            consumer.store_event(self.mock_event)
 
     @patch('confluent_kafka.Consumer')
     @patch('psycopg2.connect')
@@ -127,8 +127,9 @@ class TestPostgresConsumer(unittest.TestCase):
             consumer.start_consuming()
 
         # Verify consumer was subscribed to correct topic
-        mock_kafka_consumer.subscribe.assert_called_once_with([self.mock_env['KAFKA_TOPIC']])
-        
+        mock_kafka_consumer.subscribe.assert_called_once_with(
+            [self.mock_env['KAFKA_TOPIC']])
+
         # Verify store_event was called with correct event
         consumer.store_event.assert_called_once()
         args = consumer.store_event.call_args[0]
@@ -136,6 +137,7 @@ class TestPostgresConsumer(unittest.TestCase):
 
         # Verify consumer was closed
         mock_kafka_consumer.close.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

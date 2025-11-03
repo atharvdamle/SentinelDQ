@@ -2,9 +2,9 @@ import unittest
 from unittest.mock import patch, MagicMock
 import json
 from datetime import datetime
-import boto3
 from botocore.exceptions import ClientError
 from ingestion.consumers.minio_consumer import MinIOConsumer
+
 
 class TestMinIOConsumer(unittest.TestCase):
     def setUp(self):
@@ -96,9 +96,15 @@ class TestMinIOConsumer(unittest.TestCase):
 
     @patch('boto3.client')
     @patch('uuid.uuid4')
-    def test_store_event_success(self, mock_uuid, mock_boto3_client):
-        # Mock UUID and datetime
+    @patch('ingestion.consumers.minio_consumer.datetime')
+    def test_store_event_success(self, mock_datetime, mock_uuid, mock_boto3_client):
+        # Mock UUID
         mock_uuid.return_value = '123e4567-e89b-12d3-a456-426614174000'
+
+        # Mock datetime
+        mock_now = datetime(2025, 10, 20, 12, 0, 0)
+        mock_datetime.utcnow.return_value = mock_now
+        mock_datetime.strftime = datetime.strftime  # use real strftime
 
         # Mock S3 client
         mock_s3 = MagicMock()
@@ -107,16 +113,22 @@ class TestMinIOConsumer(unittest.TestCase):
 
         # Initialize consumer and store event
         with patch.dict('os.environ', self.mock_env):
-            with patch('datetime.datetime') as mock_datetime:
-                mock_datetime.utcnow.return_value = datetime(2025, 10, 20, 12, 0, 0)
-                consumer = MinIOConsumer()
-                consumer.store_event(self.mock_event)
+            consumer = MinIOConsumer()
+            consumer.store_event(self.mock_event)
+
+        # Get expected key format
+        expected_date = mock_now.strftime('%Y-%m-%d')
+        expected_time = mock_now.strftime('%H-%M-%S')
+        expected_key_prefix = f'raw/{expected_date}/{expected_time}-123e4567'
 
         # Verify put_object was called with correct parameters
         mock_s3.put_object.assert_called_once()
         call_kwargs = mock_s3.put_object.call_args[1]
         self.assertEqual(call_kwargs['Bucket'], self.mock_env['MINIO_BUCKET'])
-        self.assertTrue(call_kwargs['Key'].startswith('raw/2025-10-20/12-00-00-123e4567'))
+        self.assertTrue(
+            call_kwargs['Key'].startswith(expected_key_prefix),
+            f"Key '{call_kwargs['Key']}' does not start with '{expected_key_prefix}'"
+        )
         self.assertEqual(call_kwargs['ContentType'], 'application/json')
 
     @patch('boto3.client')
@@ -130,7 +142,7 @@ class TestMinIOConsumer(unittest.TestCase):
         # Initialize consumer
         with patch.dict('os.environ', self.mock_env):
             consumer = MinIOConsumer()
-            
+
             # Verify store_event raises exception
             with self.assertRaises(Exception):
                 consumer.store_event(self.mock_event)
@@ -165,13 +177,15 @@ class TestMinIOConsumer(unittest.TestCase):
             consumer.start_consuming()
 
         # Verify consumer was subscribed to correct topic
-        mock_kafka_consumer.subscribe.assert_called_once_with([self.mock_env['KAFKA_TOPIC']])
-        
+        mock_kafka_consumer.subscribe.assert_called_once_with(
+            [self.mock_env['KAFKA_TOPIC']])
+
         # Verify store_event was called with correct event
         consumer.store_event.assert_called_once_with(self.mock_event)
 
         # Verify consumer was closed
         mock_kafka_consumer.close.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

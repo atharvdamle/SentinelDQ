@@ -27,6 +27,7 @@ class PostgresConsumer:
             'auto.offset.reset': 'earliest'
         })
         self.topic = os.getenv('KAFKA_TOPIC')
+        self._running = True
 
         # PostgreSQL configuration
         self.db_config = {
@@ -67,7 +68,6 @@ class PostgresConsumer:
         with psycopg2.connect(**self.db_config) as conn:
             with conn.cursor() as cur:
                 cur.execute(create_table_query)
-            conn.commit()
         logger.info("Database table initialized")
 
     def store_event(self, event):
@@ -108,11 +108,14 @@ class PostgresConsumer:
                                 event['created_at'], '%Y-%m-%dT%H:%M:%SZ')
                         )
                     )
-                conn.commit()
             logger.info(f"Stored event {event['id']} in PostgreSQL")
         except Exception as e:
             logger.error(f"Error storing event in PostgreSQL: {e}")
             raise
+
+    def stop(self):
+        """Gracefully stop consuming."""
+        self._running = False
 
     def start_consuming(self):
         """Start consuming messages from Kafka."""
@@ -120,7 +123,7 @@ class PostgresConsumer:
             self.consumer.subscribe([self.topic])
             logger.info(f"Started consuming from topic: {self.topic}")
 
-            while True:
+            while self._running:
                 msg = self.consumer.poll(1.0)
 
                 if msg is None:
