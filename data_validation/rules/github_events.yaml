@@ -1,0 +1,349 @@
+# SentinelDQ Validation Rules for GitHub Events
+# Version: 1.0
+# Last Updated: 2025-12-19
+#
+# This file defines all validation rules for GitHub event data.
+# Rules are applied by the validation engine in the following order:
+#   1. Schema checks (required fields)
+#   2. Type checks
+#   3. Null/empty checks
+#   4. Value checks (regex, enum, range)
+#   5. Timestamp checks
+#   6. Consistency checks
+#   7. Duplicate detection
+
+version: "1.0"
+event_type: "github_events"
+description: "Validation rules for GitHub webhook events"
+
+# ============================================================================
+# SCHEMA DEFINITION
+# ============================================================================
+schema:
+  required_fields:
+    - path: "id"
+      severity: "FAIL"
+      description: "Event unique identifier"
+    
+    - path: "type"
+      severity: "FAIL"
+      description: "Event type (e.g., PushEvent, IssueCommentEvent)"
+    
+    - path: "actor"
+      severity: "FAIL"
+      description: "Actor object containing user information"
+    
+    - path: "actor.id"
+      severity: "FAIL"
+      description: "Actor user ID"
+    
+    - path: "actor.login"
+      severity: "FAIL"
+      description: "Actor username"
+    
+    - path: "repo"
+      severity: "FAIL"
+      description: "Repository object"
+    
+    - path: "repo.id"
+      severity: "FAIL"
+      description: "Repository ID"
+    
+    - path: "repo.name"
+      severity: "FAIL"
+      description: "Repository full name (owner/repo)"
+    
+    - path: "created_at"
+      severity: "FAIL"
+      description: "Event creation timestamp"
+    
+    - path: "public"
+      severity: "WARN"
+      description: "Whether event is from a public repository"
+
+  optional_fields:
+    - path: "payload"
+      severity: "WARN"
+      description: "Event payload (structure varies by type)"
+    
+    - path: "org"
+      severity: "INFO"
+      description: "Organization object (if applicable)"
+
+# ============================================================================
+# TYPE VALIDATION
+# ============================================================================
+type_checks:
+  - field: "id"
+    expected_type: "string"
+    severity: "FAIL"
+    error_message: "Event ID must be a string"
+    
+  - field: "actor.id"
+    expected_type: "integer"
+    severity: "FAIL"
+    error_message: "Actor ID must be an integer"
+    
+  - field: "actor.login"
+    expected_type: "string"
+    severity: "FAIL"
+    error_message: "Actor login must be a string"
+    
+  - field: "repo.id"
+    expected_type: "integer"
+    severity: "FAIL"
+    error_message: "Repository ID must be an integer"
+    
+  - field: "repo.name"
+    expected_type: "string"
+    severity: "FAIL"
+    error_message: "Repository name must be a string"
+    
+  - field: "public"
+    expected_type: "boolean"
+    severity: "WARN"
+    error_message: "Public field should be a boolean"
+    
+  - field: "created_at"
+    expected_type: "string"
+    severity: "FAIL"
+    error_message: "Timestamp must be a string in ISO8601 format"
+    
+  - field: "type"
+    expected_type: "string"
+    severity: "FAIL"
+    error_message: "Event type must be a string"
+
+# ============================================================================
+# NULL AND EMPTY VALUE CHECKS
+# ============================================================================
+null_checks:
+  - field: "id"
+    allow_null: false
+    allow_empty: false
+    severity: "FAIL"
+    error_message: "Event ID cannot be null or empty"
+    
+  - field: "type"
+    allow_null: false
+    allow_empty: false
+    severity: "FAIL"
+    error_message: "Event type cannot be null or empty"
+    
+  - field: "actor.id"
+    allow_null: false
+    severity: "FAIL"
+    error_message: "Actor ID cannot be null"
+    
+  - field: "actor.login"
+    allow_null: false
+    allow_empty: false
+    severity: "FAIL"
+    error_message: "Actor login cannot be null or empty"
+    
+  - field: "repo.id"
+    allow_null: false
+    severity: "FAIL"
+    error_message: "Repository ID cannot be null"
+    
+  - field: "repo.name"
+    allow_null: false
+    allow_empty: false
+    severity: "FAIL"
+    error_message: "Repository name cannot be null or empty"
+    
+  - field: "created_at"
+    allow_null: false
+    allow_empty: false
+    severity: "FAIL"
+    error_message: "Timestamp cannot be null or empty"
+
+# ============================================================================
+# VALUE VALIDATION (Regex, Enum, Range)
+# ============================================================================
+value_checks:
+  # ID format validation
+  - field: "id"
+    check_type: "regex"
+    pattern: "^[0-9]+$"
+    severity: "FAIL"
+    error_message: "Event ID must contain only digits"
+    
+  # Event type enumeration
+  - field: "type"
+    check_type: "enum"
+    allowed_values:
+      - "PushEvent"
+      - "IssuesEvent"
+      - "IssueCommentEvent"
+      - "PullRequestEvent"
+      - "PullRequestReviewEvent"
+      - "PullRequestReviewCommentEvent"
+      - "WatchEvent"
+      - "ForkEvent"
+      - "CreateEvent"
+      - "DeleteEvent"
+      - "ReleaseEvent"
+      - "MemberEvent"
+      - "PublicEvent"
+      - "GollumEvent"
+      - "CommitCommentEvent"
+    severity: "WARN"
+    error_message: "Unknown or unsupported event type"
+    
+  # GitHub username format
+  - field: "actor.login"
+    check_type: "regex"
+    pattern: "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$"
+    severity: "FAIL"
+    error_message: "Invalid GitHub username format"
+    
+  # Repository name format (owner/repo)
+  - field: "repo.name"
+    check_type: "regex"
+    pattern: "^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$"
+    severity: "FAIL"
+    error_message: "Repository name must be in format 'owner/repo'"
+    
+  # Actor ID range
+  - field: "actor.id"
+    check_type: "range"
+    min_value: 1
+    max_value: 999999999
+    severity: "FAIL"
+    error_message: "Actor ID must be a positive integer"
+    
+  # Repo ID range
+  - field: "repo.id"
+    check_type: "range"
+    min_value: 1
+    max_value: 999999999
+    severity: "FAIL"
+    error_message: "Repository ID must be a positive integer"
+
+# ============================================================================
+# TIMESTAMP VALIDATION
+# ============================================================================
+timestamp_checks:
+  # ISO8601 format validation
+  - field: "created_at"
+    check_type: "format"
+    format: "ISO8601"
+    severity: "FAIL"
+    error_message: "Timestamp must be in ISO8601 format"
+    
+  # Timestamp not in future (with tolerance for clock skew)
+  - field: "created_at"
+    check_type: "not_future"
+    tolerance_seconds: 300
+    severity: "WARN"
+    error_message: "Event timestamp is more than 5 minutes in the future"
+    
+  # Timestamp not too old
+  - field: "created_at"
+    check_type: "not_too_old"
+    max_age_days: 365
+    severity: "WARN"
+    error_message: "Event timestamp is more than 1 year old"
+    
+  # Parseable timestamp
+  - field: "created_at"
+    check_type: "parseable"
+    severity: "FAIL"
+    error_message: "Timestamp cannot be parsed as a valid datetime"
+
+# ============================================================================
+# CROSS-FIELD CONSISTENCY CHECKS
+# ============================================================================
+consistency_checks:
+  # Payload structure matches event type
+  - name: "payload_structure_matches_event_type"
+    description: "Verify payload contains expected fields for event type"
+    severity: "WARN"
+    rules:
+      - if_field: "type"
+        equals: "PushEvent"
+        then_required: ["payload.ref", "payload.commits"]
+        error_message: "PushEvent must have 'ref' and 'commits' in payload"
+      
+      - if_field: "type"
+        equals: "IssuesEvent"
+        then_required: ["payload.action", "payload.issue"]
+        error_message: "IssuesEvent must have 'action' and 'issue' in payload"
+      
+      - if_field: "type"
+        equals: "IssueCommentEvent"
+        then_required: ["payload.action", "payload.comment", "payload.issue"]
+        error_message: "IssueCommentEvent must have 'action', 'comment', and 'issue'"
+      
+      - if_field: "type"
+        equals: "PullRequestEvent"
+        then_required: ["payload.action", "payload.pull_request"]
+        error_message: "PullRequestEvent must have 'action' and 'pull_request'"
+      
+      - if_field: "type"
+        equals: "ForkEvent"
+        then_required: ["payload.forkee"]
+        error_message: "ForkEvent must have 'forkee' in payload"
+      
+      - if_field: "type"
+        equals: "CreateEvent"
+        then_required: ["payload.ref_type"]
+        error_message: "CreateEvent must have 'ref_type' in payload"
+  
+  # Actor consistency
+  - name: "actor_fields_consistent"
+    description: "Actor object should have all required subfields"
+    severity: "FAIL"
+    check_type: "all_or_none"
+    fields: ["actor.id", "actor.login", "actor.url"]
+    error_message: "Actor object is incomplete"
+  
+  # Repo consistency
+  - name: "repo_fields_consistent"
+    description: "Repo object should have all required subfields"
+    severity: "FAIL"
+    check_type: "all_or_none"
+    fields: ["repo.id", "repo.name", "repo.url"]
+    error_message: "Repository object is incomplete"
+
+# ============================================================================
+# DUPLICATE DETECTION
+# ============================================================================
+duplicate_check:
+  enabled: true
+  key_field: "id"
+  lookback_window_seconds: 3600  # Check events from last hour
+  check_table: "github_events_raw"  # Table to query for duplicates
+  severity: "FAIL"
+  error_message: "Duplicate event ID detected within lookback window"
+
+# ============================================================================
+# BATCH-LEVEL DRIFT DETECTION (Design-Ready)
+# ============================================================================
+# Note: These rules are defined for future implementation
+# They will be used for batch validation jobs
+drift_detection:
+  enabled: false  # To be implemented in Phase 2
+  
+  schema_drift:
+    enabled: false
+    baseline_schema_version: "1.0"
+    alert_on_new_fields: true
+    alert_on_missing_fields: true
+    severity: "WARN"
+    
+  distribution_drift:
+    enabled: false
+    metrics:
+      - field: "type"
+        metric: "distribution"
+        baseline_window_days: 7
+        comparison_method: "chi_square"
+        threshold: 0.05
+        severity: "WARN"
+    
+    histograms:
+      - field: "actor.id"
+        bins: 50
+        compare_interval_hours: 24
