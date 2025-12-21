@@ -4,7 +4,6 @@ Integration Example: Data Validation in Ingestion Pipeline
 This demonstrates how validation integrates with the existing ingestion system.
 """
 
-import json
 from data_validation import DataValidator, ValidationStatus
 import sys
 from pathlib import Path
@@ -28,7 +27,8 @@ def simulate_ingestion_pipeline():
     print("="*70)
 
     # Initialize validator (would be done once at startup)
-    validator = DataValidator(enable_persistence=False, enable_metrics=True)
+    # For debug we enable persistence so the example writes to Postgres
+    validator = DataValidator(enable_persistence=True, enable_metrics=True)
 
     # Simulate events from Kafka
     kafka_events = [

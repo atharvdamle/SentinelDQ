@@ -23,7 +23,6 @@ from data_validation.persistence import PostgresValidationWriter
 from data_validation.models import ValidationResult, ValidationStatus
 from data_validation.engine import ValidationEngine
 import sys
-import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -55,7 +54,7 @@ class DataValidator:
             enable_persistence: Whether to persist results to DB
         """
         # Set default rules path
-        if rules_path is None:
+        if not rules_path:
             rules_path = str(Path(__file__).parent /
                              'rules' / 'github_events.yaml')
 
@@ -65,10 +64,35 @@ class DataValidator:
         # Initialize persistence
         self.enable_persistence = enable_persistence
         self.db_writer = None
-        if enable_persistence and db_config:
-            self.db_writer = PostgresValidationWriter(db_config)
-            self.db_writer.connect()
-            self.db_writer.ensure_table_exists()
+        if enable_persistence:
+            # If caller didn't supply a db_config, try to build one from
+            # environment variables so the validator can run in Docker
+            # without extra wiring.
+            if not db_config:
+                import os
+                db_host = os.getenv('POSTGRES_HOST', 'postgres')
+                db_port = int(os.getenv('POSTGRES_PORT', 5432))
+                db_name = os.getenv('POSTGRES_DB', 'sentineldq')
+                db_user = os.getenv('POSTGRES_USER', 'postgres')
+                db_password = os.getenv('POSTGRES_PASSWORD', 'postgres')
+
+                db_config = {
+                    'host': db_host,
+                    'port': db_port,
+                    'database': db_name,
+                    'user': db_user,
+                    'password': db_password
+                }
+
+            if db_config:
+                self.db_writer = PostgresValidationWriter(db_config)
+                try:
+                    self.db_writer.connect()
+                    self.db_writer.ensure_table_exists()
+                except Exception as e:
+                    # Warn but don't crash the validator; higher layers may
+                    # choose to proceed without persistence.
+                    print(f"Warning: could not initialize DB writer: {e}")
 
         # Initialize metrics
         self.enable_metrics = enable_metrics
@@ -194,54 +218,7 @@ def validate_batch(events: List[Dict[str, Any]]) -> List[ValidationResult]:
     return get_validator().validate_batch(events, persist=False)
 
 
-# Example usage
 if __name__ == "__main__":
     print("SentinelDQ Data Validation Module")
     print("=" * 50)
-
-    # Example event
-    example_event = {
-        "id": "12345678",
-        "type": "PushEvent",
-        "actor": {
-            "id": 123456,
-            "login": "octocat",
-            "url": "https://api.github.com/users/octocat"
-        },
-        "repo": {
-            "id": 789012,
-            "name": "octocat/Hello-World",
-            "url": "https://api.github.com/repos/octocat/Hello-World"
-        },
-        "payload": {
-            "ref": "refs/heads/main",
-            "commits": []
-        },
-        "public": True,
-        "created_at": "2025-12-19T10:00:00Z"
-    }
-
-    print("\nValidating example GitHub Event...")
-    result = validate_event(example_event)
-
-    print(f"\nStatus: {result.status.value}")
-    print(f"Event ID: {result.event_id}")
-    print(f"Processing Time: {result.processing_time_ms:.2f}ms")
-
-    if result.failures:
-        print(f"\nFailures: {len(result.failures)}")
-        for failure in result.failures:
-            print(f"  - {failure}")
-    else:
-        print("\n[OK] All validation checks passed!")
-
-    # Export metrics
-    metrics = get_metrics()
-    print("\n" + "=" * 50)
-    print("Validation Metrics:")
-    print("=" * 50)
-    stats = metrics.export_json()
-    print(f"Total Validations: {stats['total_validations']}")
-    print(f"Pass Rate: {stats['pass_rate']:.1%}")
-    print(
-        f"Average Processing Time: {stats['avg_processing_time_seconds']*1000:.2f}ms")
+    # Lightweight example removed for brevity when imported as a package
