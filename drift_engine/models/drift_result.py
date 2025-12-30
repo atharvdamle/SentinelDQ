@@ -11,6 +11,7 @@ import json
 
 class DriftType(Enum):
     """Types of drift that can be detected."""
+
     SCHEMA = "schema"
     DISTRIBUTION = "distribution"
     VOLUME = "volume"
@@ -18,6 +19,7 @@ class DriftType(Enum):
 
 class Severity(Enum):
     """Severity levels for drift findings."""
+
     INFO = "INFO"
     WARNING = "WARNING"
     CRITICAL = "CRITICAL"
@@ -31,6 +33,7 @@ class Severity(Enum):
 @dataclass
 class TimeWindow:
     """Represents a time range for drift analysis."""
+
     start: datetime
     end: datetime
 
@@ -43,10 +46,7 @@ class TimeWindow:
 
     def to_dict(self) -> Dict[str, str]:
         """Convert to dictionary."""
-        return {
-            "start": self.start.isoformat(),
-            "end": self.end.isoformat()
-        }
+        return {"start": self.start.isoformat(), "end": self.end.isoformat()}
 
 
 @dataclass
@@ -56,6 +56,7 @@ class DriftResult:
 
     This is the core data structure persisted to PostgreSQL.
     """
+
     drift_type: DriftType
     entity: Optional[str]  # e.g., 'global', 'event_type', 'repo'
     # e.g., 'type', 'payload.size', or None for entity-level
@@ -84,12 +85,20 @@ class DriftResult:
             "current_start": self.current_window.start,
             "current_end": self.current_window.end,
             "metric_name": self.metric_name,
-            "baseline_value": json.dumps(self.baseline_value) if self.baseline_value is not None else None,
-            "current_value": json.dumps(self.current_value) if self.current_value is not None else None,
+            "baseline_value": (
+                json.dumps(self.baseline_value)
+                if self.baseline_value is not None
+                else None
+            ),
+            "current_value": (
+                json.dumps(self.current_value)
+                if self.current_value is not None
+                else None
+            ),
             "drift_score": self.drift_score,
             "severity": self.severity.value,
             "detected_at": self.detected_at,
-            "metadata": json.dumps(self.metadata)
+            "metadata": json.dumps(self.metadata),
         }
 
     def __str__(self):
@@ -106,6 +115,7 @@ class DriftSummary:
     """
     Aggregated summary of drift detection run.
     """
+
     run_timestamp: datetime
     baseline_window: TimeWindow
     current_window: TimeWindow
@@ -134,8 +144,9 @@ class DriftSummary:
             self.info_count += 1
 
         drift_type_key = result.drift_type.value
-        self.drifts_by_type[drift_type_key] = self.drifts_by_type.get(
-            drift_type_key, 0) + 1
+        self.drifts_by_type[drift_type_key] = (
+            self.drifts_by_type.get(drift_type_key, 0) + 1
+        )
 
     def get_critical_drifts(self) -> List[DriftResult]:
         """Get only critical severity drifts."""
@@ -152,7 +163,7 @@ class DriftSummary:
             "critical_count": self.critical_count,
             "warning_count": self.warning_count,
             "info_count": self.info_count,
-            "drifts_by_type": self.drifts_by_type
+            "drifts_by_type": self.drifts_by_type,
         }
 
     def __str__(self):

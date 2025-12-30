@@ -27,13 +27,12 @@ class SchemaProfile:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
-            "fields": self.fields,
-            "row_count": self.row_count
-        }
+        return {"fields": self.fields, "row_count": self.row_count}
 
     @classmethod
-    def from_records(cls, records: List[Dict[str, Any]], max_cardinality_track: int = 1000) -> 'SchemaProfile':
+    def from_records(
+        cls, records: List[Dict[str, Any]], max_cardinality_track: int = 1000
+    ) -> "SchemaProfile":
         """
         Build a schema profile from a list of records.
 
@@ -51,12 +50,14 @@ class SchemaProfile:
             return profile
 
         # Track field metadata
-        field_stats = defaultdict(lambda: {
-            "types": defaultdict(int),
-            "null_count": 0,
-            "present_count": 0,
-            "unique_values": set()
-        })
+        field_stats = defaultdict(
+            lambda: {
+                "types": defaultdict(int),
+                "null_count": 0,
+                "present_count": 0,
+                "unique_values": set(),
+            }
+        )
 
         for record in records:
             # Flatten nested structure
@@ -81,13 +82,17 @@ class SchemaProfile:
         # Build final field profiles
         for field_path, stats in field_stats.items():
             # Determine dominant type
-            dominant_type = max(stats["types"].items(), key=lambda x: x[1])[
-                0] if stats["types"] else "null"
+            dominant_type = (
+                max(stats["types"].items(), key=lambda x: x[1])[0]
+                if stats["types"]
+                else "null"
+            )
 
             # Calculate nullability
             nullable = stats["null_count"] > 0
-            null_ratio = stats["null_count"] / \
-                profile.row_count if profile.row_count > 0 else 0
+            null_ratio = (
+                stats["null_count"] / profile.row_count if profile.row_count > 0 else 0
+            )
 
             # Cardinality
             cardinality = len(stats["unique_values"])
@@ -100,15 +105,18 @@ class SchemaProfile:
                 "present_count": stats["present_count"],
                 "presence_ratio": round(stats["present_count"] / profile.row_count, 4),
                 "cardinality": cardinality,
-                "cardinality_exact": cardinality_exact
+                "cardinality_exact": cardinality_exact,
             }
 
         logger.info(
-            f"Built schema profile: {len(profile.fields)} fields, {profile.row_count} rows")
+            f"Built schema profile: {len(profile.fields)} fields, {profile.row_count} rows"
+        )
         return profile
 
     @staticmethod
-    def _flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
+    def _flatten_dict(
+        d: Dict[str, Any], parent_key: str = "", sep: str = "."
+    ) -> Dict[str, Any]:
         """
         Flatten nested dictionary.
 
@@ -120,8 +128,7 @@ class SchemaProfile:
             new_key = f"{parent_key}{sep}{k}" if parent_key else k
 
             if isinstance(v, dict):
-                items.extend(SchemaProfile._flatten_dict(
-                    v, new_key, sep=sep).items())
+                items.extend(SchemaProfile._flatten_dict(v, new_key, sep=sep).items())
             elif isinstance(v, list):
                 # For arrays, just track the field existence, not individual elements
                 items.append((new_key, f"<array[{len(v)}]>"))

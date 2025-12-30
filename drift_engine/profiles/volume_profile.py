@@ -26,18 +26,12 @@ class VolumeProfile:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
-            "total_count": self.total_count,
-            "per_entity": self.per_entity
-        }
+        return {"total_count": self.total_count, "per_entity": self.per_entity}
 
     @classmethod
     def from_records(
-        cls,
-        records: List[Dict[str, Any]],
-        entity_fields: List[str],
-        top_n: int = 50
-    ) -> 'VolumeProfile':
+        cls, records: List[Dict[str, Any]], entity_fields: List[str], top_n: int = 50
+    ) -> "VolumeProfile":
         """
         Build volume profile from records.
 
@@ -79,7 +73,7 @@ class VolumeProfile:
     @staticmethod
     def _extract_field(record: Dict[str, Any], field_path: str) -> Any:
         """Extract field value from nested record using dot notation."""
-        parts = field_path.split('.')
+        parts = field_path.split(".")
         value = record
 
         for part in parts:
@@ -100,6 +94,5 @@ class VolumeProfile:
     def get_top_entities(self, entity_field: str, n: int = 10) -> Dict[str, int]:
         """Get top N entities for a field."""
         entities = self.per_entity.get(entity_field, {})
-        sorted_entities = sorted(
-            entities.items(), key=lambda x: x[1], reverse=True)
+        sorted_entities = sorted(entities.items(), key=lambda x: x[1], reverse=True)
         return dict(sorted_entities[:n])

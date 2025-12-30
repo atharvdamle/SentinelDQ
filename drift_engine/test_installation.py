@@ -18,32 +18,46 @@ def test_imports():
     try:
         # Core models
         from drift_engine.models import (
-            DriftType, Severity, TimeWindow, DriftResult, DriftSummary
+            DriftType,
+            Severity,
+            TimeWindow,
+            DriftResult,
+            DriftSummary,
         )
+
         print("✓ Models imported successfully")
 
         # Profilers
         from drift_engine.profiles import (
-            SchemaProfile, StatisticalProfile, VolumeProfile
+            SchemaProfile,
+            StatisticalProfile,
+            VolumeProfile,
         )
+
         print("✓ Profilers imported successfully")
 
         # Detectors
         from drift_engine.detectors import (
-            SchemaDriftDetector, DistributionDriftDetector, VolumeDriftDetector
+            SchemaDriftDetector,
+            DistributionDriftDetector,
+            VolumeDriftDetector,
         )
+
         print("✓ Detectors imported successfully")
 
         # Engine
         from drift_engine.engine import DriftRunner
+
         print("✓ Engine imported successfully")
 
         # Persistence
         from drift_engine.persistence import DriftPostgresWriter
+
         print("✓ Persistence imported successfully")
 
         # Reports
         from drift_engine.reports import ReportGenerator
+
         print("✓ Reports imported successfully")
 
         print("\n✅ All imports successful!")
@@ -60,8 +74,18 @@ def test_basic_functionality():
 
     try:
         from datetime import datetime, timedelta
-        from drift_engine.models import TimeWindow, DriftResult, DriftType, Severity, DriftSummary
-        from drift_engine.profiles import SchemaProfile, StatisticalProfile, VolumeProfile
+        from drift_engine.models import (
+            TimeWindow,
+            DriftResult,
+            DriftType,
+            Severity,
+            DriftSummary,
+        )
+        from drift_engine.profiles import (
+            SchemaProfile,
+            StatisticalProfile,
+            VolumeProfile,
+        )
 
         # Test TimeWindow
         now = datetime.utcnow()
@@ -73,7 +97,7 @@ def test_basic_functionality():
         sample_data = [
             {"id": "1", "type": "PushEvent", "actor": {"login": "user1"}},
             {"id": "2", "type": "CreateEvent", "actor": {"login": "user2"}},
-            {"id": "3", "type": "PushEvent", "actor": {"login": "user1"}}
+            {"id": "3", "type": "PushEvent", "actor": {"login": "user1"}},
         ]
 
         profile = SchemaProfile.from_records(sample_data)
@@ -88,16 +112,14 @@ def test_basic_functionality():
             sample_data,
             categorical_fields=["type"],
             numerical_fields=[],
-            max_categories=100
+            max_categories=100,
         )
         assert "type" in stat_profile.categorical
         print("✓ StatisticalProfile works correctly")
 
         # Test VolumeProfile
         vol_profile = VolumeProfile.from_records(
-            sample_data,
-            entity_fields=["type"],
-            top_n=10
+            sample_data, entity_fields=["type"], top_n=10
         )
         assert vol_profile.total_count == 3
         print("✓ VolumeProfile works correctly")
@@ -114,7 +136,7 @@ def test_basic_functionality():
             current_value=20,
             drift_score=0.5,
             severity=Severity.WARNING,
-            metadata={"test": "value"}
+            metadata={"test": "value"},
         )
         assert drift.drift_type == DriftType.SCHEMA
         assert drift.severity == Severity.WARNING
@@ -126,7 +148,7 @@ def test_basic_functionality():
             baseline_window=window,
             current_window=window,
             total_checks=10,
-            total_drifts=0
+            total_drifts=0,
         )
         summary.add_result(drift)
         assert summary.total_drifts == 1
@@ -139,6 +161,7 @@ def test_basic_functionality():
     except Exception as e:
         print(f"\n❌ Functionality test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -157,7 +180,7 @@ def test_configuration():
             print(f"❌ Config file not found: {config_path}")
             return False
 
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
         # Verify expected sections
@@ -167,10 +190,8 @@ def test_configuration():
         assert "profiling" in config
 
         print("✓ Configuration file loaded successfully")
-        print(
-            f"  - Baseline window: {config['windowing']['baseline']['days']} days")
-        print(
-            f"  - Current window: {config['windowing']['current']['hours']} hours")
+        print(f"  - Baseline window: {config['windowing']['baseline']['days']} days")
+        print(f"  - Current window: {config['windowing']['current']['hours']} hours")
 
         print("\n✅ Configuration test passed!")
         return True

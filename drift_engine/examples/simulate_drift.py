@@ -34,7 +34,7 @@ def generate_baseline_events(count: int = 1000) -> List[Dict[str, Any]]:
         ("CreateEvent", 0.20),
         ("WatchEvent", 0.15),
         ("IssuesEvent", 0.10),
-        ("PullRequestEvent", 0.10)
+        ("PullRequestEvent", 0.10),
     ]
 
     repos = [f"user{i % 50}/repo{i % 100}" for i in range(200)]
@@ -55,16 +55,12 @@ def generate_baseline_events(count: int = 1000) -> List[Dict[str, Any]]:
         event = {
             "id": str(i),
             "type": selected_type,
-            "actor": {
-                "login": random.choice(actors)
-            },
-            "repo": {
-                "name": random.choice(repos)
-            },
-            "payload": {
-                "size": max(0, int(random.gauss(1200, 300)))
-            },
-            "created_at": (datetime.utcnow() - timedelta(days=random.randint(1, 7))).isoformat()
+            "actor": {"login": random.choice(actors)},
+            "repo": {"name": random.choice(repos)},
+            "payload": {"size": max(0, int(random.gauss(1200, 300)))},
+            "created_at": (
+                datetime.utcnow() - timedelta(days=random.randint(1, 7))
+            ).isoformat(),
         }
 
         # Random nulls (5% chance for payload.size)
@@ -88,8 +84,7 @@ def generate_schema_drift_events(count: int = 200) -> List[Dict[str, Any]]:
     4. Cardinality explosion: 3x more unique repos
     """
     events = []
-    event_types = ["PushEvent", "CreateEvent",
-                   "SecurityAdvisoryEvent"]  # New type!
+    event_types = ["PushEvent", "CreateEvent", "SecurityAdvisoryEvent"]  # New type!
 
     # 3x more repos (cardinality explosion)
     repos = [f"user{i % 150}/repo{i % 300}" for i in range(600)]
@@ -99,14 +94,10 @@ def generate_schema_drift_events(count: int = 200) -> List[Dict[str, Any]]:
         event = {
             "id": i,  # Type change: integer instead of string!
             "type": random.choice(event_types),
-            "actor": {
-                "login": random.choice(actors)
-            },
-            "repo": {
-                "name": random.choice(repos)
-            },
+            "actor": {"login": random.choice(actors)},
+            "repo": {"name": random.choice(repos)},
             "payload": {},
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.utcnow().isoformat(),
         }
 
         # 50% missing payload.size (field removal)
@@ -138,11 +129,11 @@ def generate_distribution_drift_events(count: int = 200) -> List[Dict[str, Any]]
 
     # Shifted distribution (PushEvent now dominant)
     event_types = [
-        ("PushEvent", 0.65),      # Was 0.45 (+44% increase!)
-        ("CreateEvent", 0.15),    # Was 0.20
-        ("WatchEvent", 0.10),     # Was 0.15
-        ("IssuesEvent", 0.05),    # Was 0.10
-        ("PullRequestEvent", 0.05)  # Was 0.10
+        ("PushEvent", 0.65),  # Was 0.45 (+44% increase!)
+        ("CreateEvent", 0.15),  # Was 0.20
+        ("WatchEvent", 0.10),  # Was 0.15
+        ("IssuesEvent", 0.05),  # Was 0.10
+        ("PullRequestEvent", 0.05),  # Was 0.10
     ]
 
     repos = [f"user{i % 50}/repo{i % 100}" for i in range(200)]
@@ -161,17 +152,13 @@ def generate_distribution_drift_events(count: int = 200) -> List[Dict[str, Any]]
         event = {
             "id": str(i),
             "type": selected_type,
-            "actor": {
-                "login": random.choice(actors)
-            },
-            "repo": {
-                "name": random.choice(repos)
-            },
+            "actor": {"login": random.choice(actors)},
+            "repo": {"name": random.choice(repos)},
             "payload": {
                 # Mean shifted up!
                 "size": max(0, int(random.gauss(2500, 400)))
             },
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.utcnow().isoformat(),
         }
 
         # Increased null ratio (30% instead of 5%)
@@ -193,8 +180,13 @@ def generate_volume_drift_events(count: int = 3000) -> List[Dict[str, Any]]:
     2. One repo has sudden spike (50 → 500 events)
     """
     events = []
-    event_types = ["PushEvent", "CreateEvent",
-                   "WatchEvent", "IssuesEvent", "PullRequestEvent"]
+    event_types = [
+        "PushEvent",
+        "CreateEvent",
+        "WatchEvent",
+        "IssuesEvent",
+        "PullRequestEvent",
+    ]
 
     repos = [f"user{i % 50}/repo{i % 100}" for i in range(200)]
     actors = [f"user{i}" for i in range(100)]
@@ -212,16 +204,10 @@ def generate_volume_drift_events(count: int = 3000) -> List[Dict[str, Any]]:
         event = {
             "id": str(i),
             "type": random.choice(event_types),
-            "actor": {
-                "login": random.choice(actors)
-            },
-            "repo": {
-                "name": repo
-            },
-            "payload": {
-                "size": max(0, int(random.gauss(1200, 300)))
-            },
-            "created_at": datetime.utcnow().isoformat()
+            "actor": {"login": random.choice(actors)},
+            "repo": {"name": repo},
+            "payload": {"size": max(0, int(random.gauss(1200, 300)))},
+            "created_at": datetime.utcnow().isoformat(),
         }
 
         if random.random() < 0.05:
@@ -241,20 +227,24 @@ def demonstrate_drift_detection():
     """
     import sys
     from pathlib import Path
+
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
     from drift_engine.profiles import SchemaProfile, StatisticalProfile, VolumeProfile
-    from drift_engine.detectors import SchemaDriftDetector, DistributionDriftDetector, VolumeDriftDetector
+    from drift_engine.detectors import (
+        SchemaDriftDetector,
+        DistributionDriftDetector,
+        VolumeDriftDetector,
+    )
     from drift_engine.models import TimeWindow
 
     # Define windows
     baseline_window = TimeWindow(
         start=datetime.utcnow() - timedelta(days=8),
-        end=datetime.utcnow() - timedelta(days=1)
+        end=datetime.utcnow() - timedelta(days=1),
     )
     current_window = TimeWindow(
-        start=datetime.utcnow() - timedelta(hours=24),
-        end=datetime.utcnow()
+        start=datetime.utcnow() - timedelta(hours=24), end=datetime.utcnow()
     )
 
     print("\n" + "=" * 80)
@@ -273,9 +263,11 @@ def demonstrate_drift_detection():
     current_profile = SchemaProfile.from_records(drift_data)
 
     detector = SchemaDriftDetector(
-        {"cardinality_warning_ratio": 2.0, "cardinality_critical_ratio": 5.0})
+        {"cardinality_warning_ratio": 2.0, "cardinality_critical_ratio": 5.0}
+    )
     drifts = detector.detect(
-        baseline_profile, current_profile, baseline_window, current_window)
+        baseline_profile, current_profile, baseline_window, current_window
+    )
 
     print(f"\nDetected {len(drifts)} schema drifts:")
     for drift in drifts:
@@ -295,22 +287,25 @@ def demonstrate_drift_detection():
         baseline_data,
         categorical_fields=["type"],
         numerical_fields=["payload.size"],
-        max_categories=100
+        max_categories=100,
     )
     current_profile = StatisticalProfile.from_records(
         drift_data,
         categorical_fields=["type"],
         numerical_fields=["payload.size"],
-        max_categories=100
+        max_categories=100,
     )
 
-    detector = DistributionDriftDetector({
-        "psi": {"info": 0.1, "warning": 0.25},
-        "ks_test": {"info_pvalue": 0.05, "warning_pvalue": 0.01},
-        "null_ratio_change": {"warning": 0.1, "critical": 0.25}
-    })
+    detector = DistributionDriftDetector(
+        {
+            "psi": {"info": 0.1, "warning": 0.25},
+            "ks_test": {"info_pvalue": 0.05, "warning_pvalue": 0.01},
+            "null_ratio_change": {"warning": 0.1, "critical": 0.25},
+        }
+    )
     drifts = detector.detect(
-        baseline_profile, current_profile, baseline_window, current_window)
+        baseline_profile, current_profile, baseline_window, current_window
+    )
 
     print(f"\nDetected {len(drifts)} distribution drifts:")
     for drift in drifts:
@@ -320,7 +315,8 @@ def demonstrate_drift_detection():
             print(f"    PSI: {drift.metadata['psi_score']:.4f}")
         if "mean_shift_std_units" in drift.metadata:
             print(
-                f"    Mean shift: {drift.metadata['mean_shift_std_units']:.2f} std units")
+                f"    Mean shift: {drift.metadata['mean_shift_std_units']:.2f} std units"
+            )
 
     # Scenario 3: Volume Drift
     print("\n" + "-" * 80)
@@ -331,27 +327,27 @@ def demonstrate_drift_detection():
     drift_data = generate_volume_drift_events(3000)
 
     baseline_profile = VolumeProfile.from_records(
-        baseline_data,
-        entity_fields=["type", "repo.name"],
-        top_n=50
+        baseline_data, entity_fields=["type", "repo.name"], top_n=50
     )
     current_profile = VolumeProfile.from_records(
-        drift_data,
-        entity_fields=["type", "repo.name"],
-        top_n=50
+        drift_data, entity_fields=["type", "repo.name"], top_n=50
     )
 
-    detector = VolumeDriftDetector({
-        "z_score": {"info": 2.0, "warning": 3.0},
-        "percent_change": {"info": 0.20, "warning": 0.50}
-    })
+    detector = VolumeDriftDetector(
+        {
+            "z_score": {"info": 2.0, "warning": 3.0},
+            "percent_change": {"info": 0.20, "warning": 0.50},
+        }
+    )
     drifts = detector.detect(
-        baseline_profile, current_profile, baseline_window, current_window)
+        baseline_profile, current_profile, baseline_window, current_window
+    )
 
     print(f"\nDetected {len(drifts)} volume drifts:")
     for drift in drifts[:5]:  # Show first 5
         print(
-            f"  [{drift.severity.value}] {drift.entity}.{drift.field_name or 'global'}")
+            f"  [{drift.severity.value}] {drift.entity}.{drift.field_name or 'global'}"
+        )
         print(f"    Score: {drift.drift_score:.3f}")
         if "z_score" in drift.metadata:
             print(f"    Z-score: {drift.metadata['z_score']:.2f}")

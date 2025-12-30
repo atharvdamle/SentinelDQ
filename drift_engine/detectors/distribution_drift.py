@@ -32,21 +32,21 @@ class DistributionDriftDetector:
         self.config = config
         self.psi_info_threshold = config.get("psi", {}).get("info", 0.1)
         self.psi_warning_threshold = config.get("psi", {}).get("warning", 0.25)
-        self.ks_info_pvalue = config.get(
-            "ks_test", {}).get("info_pvalue", 0.05)
-        self.ks_warning_pvalue = config.get(
-            "ks_test", {}).get("warning_pvalue", 0.01)
-        self.null_warning_threshold = config.get(
-            "null_ratio_change", {}).get("warning", 0.1)
-        self.null_critical_threshold = config.get(
-            "null_ratio_change", {}).get("critical", 0.25)
+        self.ks_info_pvalue = config.get("ks_test", {}).get("info_pvalue", 0.05)
+        self.ks_warning_pvalue = config.get("ks_test", {}).get("warning_pvalue", 0.01)
+        self.null_warning_threshold = config.get("null_ratio_change", {}).get(
+            "warning", 0.1
+        )
+        self.null_critical_threshold = config.get("null_ratio_change", {}).get(
+            "critical", 0.25
+        )
 
     def detect(
         self,
         baseline_profile: StatisticalProfile,
         current_profile: StatisticalProfile,
         baseline_window: TimeWindow,
-        current_window: TimeWindow
+        current_window: TimeWindow,
     ) -> List[DriftResult]:
         """
         Detect distribution drift between two profiles.
@@ -57,31 +57,29 @@ class DistributionDriftDetector:
         results = []
 
         # 1. Detect categorical distribution drift (PSI)
-        results.extend(self._detect_categorical_drift(
-            baseline_profile,
-            current_profile,
-            baseline_window,
-            current_window
-        ))
+        results.extend(
+            self._detect_categorical_drift(
+                baseline_profile, current_profile, baseline_window, current_window
+            )
+        )
 
         # 2. Detect numerical distribution drift (KS test)
-        results.extend(self._detect_numerical_drift(
-            baseline_profile,
-            current_profile,
-            baseline_window,
-            current_window
-        ))
+        results.extend(
+            self._detect_numerical_drift(
+                baseline_profile, current_profile, baseline_window, current_window
+            )
+        )
 
         # 3. Detect null ratio changes
-        results.extend(self._detect_null_ratio_drift(
-            baseline_profile,
-            current_profile,
-            baseline_window,
-            current_window
-        ))
+        results.extend(
+            self._detect_null_ratio_drift(
+                baseline_profile, current_profile, baseline_window, current_window
+            )
+        )
 
         logger.info(
-            f"Distribution drift detection complete: {len(results)} drifts detected")
+            f"Distribution drift detection complete: {len(results)} drifts detected"
+        )
         return results
 
     def _detect_categorical_drift(
@@ -89,7 +87,7 @@ class DistributionDriftDetector:
         baseline_profile: StatisticalProfile,
         current_profile: StatisticalProfile,
         baseline_window: TimeWindow,
-        current_window: TimeWindow
+        current_window: TimeWindow,
     ) -> List[DriftResult]:
         """Detect drift in categorical field distributions using PSI."""
         results = []
@@ -130,13 +128,11 @@ class DistributionDriftDetector:
                 metadata={
                     "psi_score": round(psi_score, 4),
                     "baseline_top_values": self._get_top_values(baseline_dist, 5),
-                    "current_top_values": self._get_top_values(current_dist, 5)
-                }
+                    "current_top_values": self._get_top_values(current_dist, 5),
+                },
             )
             results.append(result)
-            logger.info(
-                f"[{severity.value}] PSI drift in {field}: {psi_score:.4f}"
-            )
+            logger.info(f"[{severity.value}] PSI drift in {field}: {psi_score:.4f}")
 
         return results
 
@@ -145,7 +141,7 @@ class DistributionDriftDetector:
         baseline_profile: StatisticalProfile,
         current_profile: StatisticalProfile,
         baseline_window: TimeWindow,
-        current_window: TimeWindow
+        current_window: TimeWindow,
     ) -> List[DriftResult]:
         """Detect drift in numerical field distributions using statistical comparisons."""
         results = []
@@ -197,8 +193,8 @@ class DistributionDriftDetector:
                     "mean_shift_std_units": round(mean_shift, 2),
                     "baseline_mean": baseline_mean,
                     "current_mean": current_mean,
-                    "baseline_std": baseline_std
-                }
+                    "baseline_std": baseline_std,
+                },
             )
             results.append(result)
             logger.info(
@@ -212,7 +208,7 @@ class DistributionDriftDetector:
         baseline_profile: StatisticalProfile,
         current_profile: StatisticalProfile,
         baseline_window: TimeWindow,
-        current_window: TimeWindow
+        current_window: TimeWindow,
     ) -> List[DriftResult]:
         """Detect changes in null ratios."""
         results = []
@@ -253,8 +249,8 @@ class DistributionDriftDetector:
                 metadata={
                     "absolute_change": round(null_ratio_change, 4),
                     "baseline_null_ratio": round(baseline_null_ratio, 4),
-                    "current_null_ratio": round(current_null_ratio, 4)
-                }
+                    "current_null_ratio": round(current_null_ratio, 4),
+                },
             )
             results.append(result)
             logger.info(
@@ -265,7 +261,9 @@ class DistributionDriftDetector:
         return results
 
     @staticmethod
-    def _calculate_psi(baseline_dist: Dict[str, float], current_dist: Dict[str, float]) -> float:
+    def _calculate_psi(
+        baseline_dist: Dict[str, float], current_dist: Dict[str, float]
+    ) -> float:
         """
         Calculate Population Stability Index (PSI).
 
@@ -294,14 +292,12 @@ class DistributionDriftDetector:
             if current_pct < 1e-10:
                 current_pct = 1e-10
 
-            psi += (current_pct - baseline_pct) * \
-                math.log(current_pct / baseline_pct)
+            psi += (current_pct - baseline_pct) * math.log(current_pct / baseline_pct)
 
         return abs(psi)
 
     @staticmethod
     def _get_top_values(distribution: Dict[str, float], n: int = 5) -> Dict[str, float]:
         """Get top N values from distribution."""
-        sorted_items = sorted(distribution.items(),
-                              key=lambda x: x[1], reverse=True)
+        sorted_items = sorted(distribution.items(), key=lambda x: x[1], reverse=True)
         return dict(sorted_items[:n])

@@ -31,7 +31,8 @@ class ReportGenerator:
         lines.append("=" * 80)
         lines.append("")
         lines.append(
-            f"Run Timestamp: {summary.run_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            f"Run Timestamp: {summary.run_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        )
         lines.append("")
         lines.append(f"Baseline Window: {summary.baseline_window}")
         lines.append(f"Current Window:  {summary.current_window}")
@@ -60,8 +61,7 @@ class ReportGenerator:
             return "\n".join(lines)
 
         # Group results by severity
-        critical = [r for r in summary.results if r.severity ==
-                    Severity.CRITICAL]
+        critical = [r for r in summary.results if r.severity == Severity.CRITICAL]
         warning = [r for r in summary.results if r.severity == Severity.WARNING]
         info = [r for r in summary.results if r.severity == Severity.INFO]
 
@@ -105,8 +105,7 @@ class ReportGenerator:
         """Format a single drift result with details."""
         lines = []
         lines.append("")
-        lines.append(
-            f"[{drift.severity.value}] {drift.drift_type.value.upper()} DRIFT")
+        lines.append(f"[{drift.severity.value}] {drift.drift_type.value.upper()} DRIFT")
         lines.append(f"  Entity: {drift.entity or 'global'}")
         lines.append(f"  Field:  {drift.field_name or 'N/A'}")
         lines.append(f"  Metric: {drift.metric_name}")
@@ -146,18 +145,20 @@ class ReportGenerator:
         # Add detailed results
         report["results"] = []
         for drift in summary.results:
-            report["results"].append({
-                "drift_type": drift.drift_type.value,
-                "entity": drift.entity,
-                "field_name": drift.field_name,
-                "metric_name": drift.metric_name,
-                "drift_score": drift.drift_score,
-                "severity": drift.severity.value,
-                "baseline_value": drift.baseline_value,
-                "current_value": drift.current_value,
-                "metadata": drift.metadata,
-                "detected_at": drift.detected_at.isoformat()
-            })
+            report["results"].append(
+                {
+                    "drift_type": drift.drift_type.value,
+                    "entity": drift.entity,
+                    "field_name": drift.field_name,
+                    "metric_name": drift.metric_name,
+                    "drift_score": drift.drift_score,
+                    "severity": drift.severity.value,
+                    "baseline_value": drift.baseline_value,
+                    "current_value": drift.current_value,
+                    "metadata": drift.metadata,
+                    "detected_at": drift.detected_at.isoformat(),
+                }
+            )
 
         return json.dumps(report, indent=2, default=str)
 
@@ -176,7 +177,8 @@ class ReportGenerator:
         lines.append("# SentinelDQ Drift Detection Report")
         lines.append("")
         lines.append(
-            f"**Run Timestamp:** {summary.run_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            f"**Run Timestamp:** {summary.run_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        )
         lines.append("")
         lines.append(f"**Baseline Window:** {summary.baseline_window}")
         lines.append(f"**Current Window:** {summary.current_window}")
@@ -196,14 +198,14 @@ class ReportGenerator:
             return "\n".join(lines)
 
         # Critical drifts
-        critical = [r for r in summary.results if r.severity ==
-                    Severity.CRITICAL]
+        critical = [r for r in summary.results if r.severity == Severity.CRITICAL]
         if critical:
             lines.append(f"## 🚨 Critical Drifts ({len(critical)})")
             lines.append("")
             for drift in critical:
                 lines.append(
-                    f"### {drift.entity or 'global'}.{drift.field_name or 'N/A'}")
+                    f"### {drift.entity or 'global'}.{drift.field_name or 'N/A'}"
+                )
                 lines.append(f"- **Type:** {drift.drift_type.value}")
                 lines.append(f"- **Metric:** {drift.metric_name}")
                 lines.append(f"- **Drift Score:** {drift.drift_score:.3f}")
@@ -217,7 +219,8 @@ class ReportGenerator:
             lines.append("")
             for drift in warning:
                 lines.append(
-                    f"- `{drift.entity or 'global'}.{drift.field_name or 'N/A'}`: {drift.metric_name} = {drift.drift_score:.3f}")
+                    f"- `{drift.entity or 'global'}.{drift.field_name or 'N/A'}`: {drift.metric_name} = {drift.drift_score:.3f}"
+                )
             lines.append("")
 
         # Info drifts
@@ -227,7 +230,8 @@ class ReportGenerator:
             lines.append("")
             for drift in info[:10]:
                 lines.append(
-                    f"- `{drift.entity or 'global'}.{drift.field_name or 'N/A'}`: {drift.metric_name}")
+                    f"- `{drift.entity or 'global'}.{drift.field_name or 'N/A'}`: {drift.metric_name}"
+                )
             if len(info) > 10:
                 lines.append(f"- ... and {len(info) - 10} more")
             lines.append("")
@@ -251,5 +255,5 @@ class ReportGenerator:
         else:
             content = ReportGenerator.generate_text_report(summary)
 
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write(content)

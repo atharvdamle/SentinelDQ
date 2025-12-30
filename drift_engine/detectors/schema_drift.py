@@ -30,17 +30,15 @@ class SchemaDriftDetector:
             config: Schema drift thresholds from drift_config.yaml
         """
         self.config = config
-        self.cardinality_warning_ratio = config.get(
-            "cardinality_warning_ratio", 2.0)
-        self.cardinality_critical_ratio = config.get(
-            "cardinality_critical_ratio", 5.0)
+        self.cardinality_warning_ratio = config.get("cardinality_warning_ratio", 2.0)
+        self.cardinality_critical_ratio = config.get("cardinality_critical_ratio", 5.0)
 
     def detect(
         self,
         baseline_profile: SchemaProfile,
         current_profile: SchemaProfile,
         baseline_window: TimeWindow,
-        current_window: TimeWindow
+        current_window: TimeWindow,
     ) -> List[DriftResult]:
         """
         Detect schema drift between two profiles.
@@ -75,8 +73,8 @@ class SchemaDriftDetector:
                 metadata={
                     "change_type": "addition",
                     "nullable": nullable,
-                    "type": field_info.get("type")
-                }
+                    "type": field_info.get("type"),
+                },
             )
             results.append(result)
             logger.info(f"[{severity.value}] New field detected: {field}")
@@ -100,8 +98,8 @@ class SchemaDriftDetector:
                 metadata={
                     "change_type": "removal",
                     "baseline_type": field_info.get("type"),
-                    "baseline_presence_ratio": field_info.get("presence_ratio")
-                }
+                    "baseline_presence_ratio": field_info.get("presence_ratio"),
+                },
             )
             results.append(result)
             logger.warning(f"[CRITICAL] Field removed: {field}")
@@ -131,12 +129,13 @@ class SchemaDriftDetector:
                     metadata={
                         "change_type": "type_mutation",
                         "from_type": baseline_type,
-                        "to_type": current_type
-                    }
+                        "to_type": current_type,
+                    },
                 )
                 results.append(result)
                 logger.warning(
-                    f"[CRITICAL] Type change in {field}: {baseline_type} -> {current_type}")
+                    f"[CRITICAL] Type change in {field}: {baseline_type} -> {current_type}"
+                )
 
             # Check cardinality explosion
             baseline_card = baseline_info.get("cardinality", 0)
@@ -169,8 +168,8 @@ class SchemaDriftDetector:
                         "change_type": "cardinality_increase",
                         "ratio": round(card_ratio, 2),
                         "baseline_cardinality": baseline_card,
-                        "current_cardinality": current_card
-                    }
+                        "current_cardinality": current_card,
+                    },
                 )
                 results.append(result)
                 logger.info(
@@ -178,6 +177,5 @@ class SchemaDriftDetector:
                     f"{baseline_card} -> {current_card} ({card_ratio:.1f}x)"
                 )
 
-        logger.info(
-            f"Schema drift detection complete: {len(results)} drifts detected")
+        logger.info(f"Schema drift detection complete: {len(results)} drifts detected")
         return results

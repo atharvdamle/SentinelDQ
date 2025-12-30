@@ -29,14 +29,12 @@ class VolumeDriftDetector:
             config: Volume drift thresholds from drift_config.yaml
         """
         self.config = config
-        self.z_score_info_threshold = config.get(
-            "z_score", {}).get("info", 2.0)
-        self.z_score_warning_threshold = config.get(
-            "z_score", {}).get("warning", 3.0)
-        self.percent_info_threshold = config.get(
-            "percent_change", {}).get("info", 0.20)
-        self.percent_warning_threshold = config.get(
-            "percent_change", {}).get("warning", 0.50)
+        self.z_score_info_threshold = config.get("z_score", {}).get("info", 2.0)
+        self.z_score_warning_threshold = config.get("z_score", {}).get("warning", 3.0)
+        self.percent_info_threshold = config.get("percent_change", {}).get("info", 0.20)
+        self.percent_warning_threshold = config.get("percent_change", {}).get(
+            "warning", 0.50
+        )
 
     def detect(
         self,
@@ -44,7 +42,7 @@ class VolumeDriftDetector:
         current_profile: VolumeProfile,
         baseline_window: TimeWindow,
         current_window: TimeWindow,
-        baseline_profiles: List[VolumeProfile] = None
+        baseline_profiles: List[VolumeProfile] = None,
     ) -> List[DriftResult]:
         """
         Detect volume drift between two profiles.
@@ -62,24 +60,24 @@ class VolumeDriftDetector:
         results = []
 
         # 1. Detect global volume drift
-        results.extend(self._detect_global_volume_drift(
-            baseline_profile,
-            current_profile,
-            baseline_window,
-            current_window,
-            baseline_profiles
-        ))
+        results.extend(
+            self._detect_global_volume_drift(
+                baseline_profile,
+                current_profile,
+                baseline_window,
+                current_window,
+                baseline_profiles,
+            )
+        )
 
         # 2. Detect per-entity volume drift
-        results.extend(self._detect_per_entity_volume_drift(
-            baseline_profile,
-            current_profile,
-            baseline_window,
-            current_window
-        ))
+        results.extend(
+            self._detect_per_entity_volume_drift(
+                baseline_profile, current_profile, baseline_window, current_window
+            )
+        )
 
-        logger.info(
-            f"Volume drift detection complete: {len(results)} drifts detected")
+        logger.info(f"Volume drift detection complete: {len(results)} drifts detected")
         return results
 
     def _detect_global_volume_drift(
@@ -88,7 +86,7 @@ class VolumeDriftDetector:
         current_profile: VolumeProfile,
         baseline_window: TimeWindow,
         current_window: TimeWindow,
-        baseline_profiles: List[VolumeProfile] = None
+        baseline_profiles: List[VolumeProfile] = None,
     ) -> List[DriftResult]:
         """Detect drift in global event counts."""
         results = []
@@ -102,7 +100,8 @@ class VolumeDriftDetector:
 
         if baseline_duration == 0 or current_duration == 0:
             logger.warning(
-                "Window duration is zero, skipping global volume drift detection")
+                "Window duration is zero, skipping global volume drift detection"
+            )
             return results
 
         baseline_rate = baseline_count / baseline_duration
@@ -118,30 +117,35 @@ class VolumeDriftDetector:
                 historical_rates.append(rate)
 
             mean_rate = sum(historical_rates) / len(historical_rates)
-            variance = sum((r - mean_rate) **
-                           2 for r in historical_rates) / len(historical_rates)
-            std_rate = math.sqrt(
-                variance) if variance > 0 else baseline_rate * 0.1
+            variance = sum((r - mean_rate) ** 2 for r in historical_rates) / len(
+                historical_rates
+            )
+            std_rate = math.sqrt(variance) if variance > 0 else baseline_rate * 0.1
 
-            z_score = (current_rate - mean_rate) / \
-                std_rate if std_rate > 0 else 0
+            z_score = (current_rate - mean_rate) / std_rate if std_rate > 0 else 0
         else:
             # Fall back to simple comparison with baseline
             std_rate = baseline_rate * 0.1  # Assume 10% std dev
-            z_score = (current_rate - baseline_rate) / \
-                std_rate if std_rate > 0 else 0
+            z_score = (current_rate - baseline_rate) / std_rate if std_rate > 0 else 0
 
         # Calculate percentage change
-        percent_change = (current_rate - baseline_rate) / \
-            baseline_rate if baseline_rate > 0 else 0
+        percent_change = (
+            (current_rate - baseline_rate) / baseline_rate if baseline_rate > 0 else 0
+        )
 
         # Determine severity based on z-score
         abs_z_score = abs(z_score)
 
-        if abs_z_score >= self.z_score_warning_threshold or abs(percent_change) >= self.percent_warning_threshold:
+        if (
+            abs_z_score >= self.z_score_warning_threshold
+            or abs(percent_change) >= self.percent_warning_threshold
+        ):
             severity = Severity.CRITICAL
             drift_score = min(1.0, abs_z_score / 5.0)
-        elif abs_z_score >= self.z_score_info_threshold or abs(percent_change) >= self.percent_info_threshold:
+        elif (
+            abs_z_score >= self.z_score_info_threshold
+            or abs(percent_change) >= self.percent_info_threshold
+        ):
             severity = Severity.WARNING
             drift_score = abs_z_score / 5.0
         else:
@@ -167,8 +171,8 @@ class VolumeDriftDetector:
                 "baseline_total": baseline_count,
                 "current_total": current_count,
                 "baseline_rate_per_hour": round(baseline_rate, 2),
-                "current_rate_per_hour": round(current_rate, 2)
-            }
+                "current_rate_per_hour": round(current_rate, 2),
+            },
         )
         results.append(result)
         logger.info(
@@ -184,7 +188,7 @@ class VolumeDriftDetector:
         baseline_profile: VolumeProfile,
         current_profile: VolumeProfile,
         baseline_window: TimeWindow,
-        current_window: TimeWindow
+        current_window: TimeWindow,
     ) -> List[DriftResult]:
         """Detect drift in per-entity volumes (e.g., per event type, per repo)."""
         results = []
@@ -199,7 +203,8 @@ class VolumeDriftDetector:
 
             # Check entities that exist in both
             common_entities = set(baseline_entities.keys()) & set(
-                current_entities.keys())
+                current_entities.keys()
+            )
 
             for entity_value in common_entities:
                 baseline_count = baseline_entities[entity_value]
@@ -207,8 +212,7 @@ class VolumeDriftDetector:
 
                 # Calculate percentage change
                 if baseline_count > 0:
-                    percent_change = (
-                        current_count - baseline_count) / baseline_count
+                    percent_change = (current_count - baseline_count) / baseline_count
                 else:
                     percent_change = 1.0 if current_count > 0 else 0.0
 
@@ -241,8 +245,8 @@ class VolumeDriftDetector:
                         "percent_change": round(percent_change * 100, 2),
                         "direction": direction,
                         "baseline_count": baseline_count,
-                        "current_count": current_count
-                    }
+                        "current_count": current_count,
+                    },
                 )
                 results.append(result)
                 logger.info(

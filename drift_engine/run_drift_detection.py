@@ -21,8 +21,8 @@ def setup_logging(level: str = "INFO"):
     """Configure logging."""
     logging.basicConfig(
         level=getattr(logging, level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
@@ -44,21 +44,21 @@ Examples:
   
   # Print report to console only
   python run_drift_detection.py --console-only
-        """
+        """,
     )
 
     parser.add_argument(
         "--config",
         type=str,
         default=None,
-        help="Path to drift_config.yaml (default: drift_engine/config/drift_config.yaml)"
+        help="Path to drift_config.yaml (default: drift_engine/config/drift_config.yaml)",
     )
 
     parser.add_argument(
         "--output",
         type=str,
         default=None,
-        help="Path to save report (default: print to console)"
+        help="Path to save report (default: print to console)",
     )
 
     parser.add_argument(
@@ -66,13 +66,13 @@ Examples:
         type=str,
         choices=["text", "json", "markdown"],
         default="text",
-        help="Report output format (default: text)"
+        help="Report output format (default: text)",
     )
 
     parser.add_argument(
         "--console-only",
         action="store_true",
-        help="Only print to console, don't save to file"
+        help="Only print to console, don't save to file",
     )
 
     parser.add_argument(
@@ -80,7 +80,7 @@ Examples:
         type=str,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
-        help="Logging level (default: INFO)"
+        help="Logging level (default: INFO)",
     )
 
     args = parser.parse_args()
@@ -108,7 +108,7 @@ Examples:
 
         # Output report
         if args.output and not args.console_only:
-            with open(args.output, 'w') as f:
+            with open(args.output, "w") as f:
                 f.write(report)
             logger.info(f"Report saved to {args.output}")
 
@@ -117,8 +117,7 @@ Examples:
 
         # Exit with appropriate code
         if summary.critical_count > 0:
-            logger.warning(
-                f"Detected {summary.critical_count} CRITICAL drifts")
+            logger.warning(f"Detected {summary.critical_count} CRITICAL drifts")
             sys.exit(1)
         elif summary.warning_count > 0:
             logger.info(f"Detected {summary.warning_count} WARNING drifts")

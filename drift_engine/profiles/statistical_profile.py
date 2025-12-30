@@ -34,7 +34,7 @@ class StatisticalProfile:
             "categorical": self.categorical,
             "numerical": self.numerical,
             "null_ratios": self.null_ratios,
-            "row_count": self.row_count
+            "row_count": self.row_count,
         }
 
     @classmethod
@@ -43,8 +43,8 @@ class StatisticalProfile:
         records: List[Dict[str, Any]],
         categorical_fields: List[str],
         numerical_fields: List[str],
-        max_categories: int = 100
-    ) -> 'StatisticalProfile':
+        max_categories: int = 100,
+    ) -> "StatisticalProfile":
         """
         Build statistical profile from records.
 
@@ -76,8 +76,9 @@ class StatisticalProfile:
                     values.append(str(value))
 
             # Calculate null ratio
-            profile.null_ratios[field] = null_count / \
-                profile.row_count if profile.row_count > 0 else 0
+            profile.null_ratios[field] = (
+                null_count / profile.row_count if profile.row_count > 0 else 0
+            )
 
             # Calculate distribution
             if values:
@@ -87,8 +88,7 @@ class StatisticalProfile:
                 # Only track if cardinality is reasonable
                 if len(counter) <= max_categories:
                     distribution = {
-                        value: count / total
-                        for value, count in counter.most_common()
+                        value: count / total for value, count in counter.most_common()
                     }
                     profile.categorical[field] = distribution
                 else:
@@ -114,8 +114,9 @@ class StatisticalProfile:
                         null_count += 1
 
             # Calculate null ratio
-            profile.null_ratios[field] = null_count / \
-                profile.row_count if profile.row_count > 0 else 0
+            profile.null_ratios[field] = (
+                null_count / profile.row_count if profile.row_count > 0 else 0
+            )
 
             # Calculate statistics
             if values:
@@ -133,7 +134,7 @@ class StatisticalProfile:
                     "max": sorted_values[-1],
                     "p50": cls._percentile(sorted_values, 50),
                     "p95": cls._percentile(sorted_values, 95),
-                    "p99": cls._percentile(sorted_values, 99)
+                    "p99": cls._percentile(sorted_values, 99),
                 }
 
         logger.info(
@@ -152,7 +153,7 @@ class StatisticalProfile:
             record = {"actor": {"login": "user1"}}
             _extract_field(record, "actor.login") -> "user1"
         """
-        parts = field_path.split('.')
+        parts = field_path.split(".")
         value = record
 
         for part in parts:

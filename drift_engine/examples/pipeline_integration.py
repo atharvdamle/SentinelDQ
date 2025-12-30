@@ -18,8 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -64,15 +63,15 @@ def run_drift_detection_pipeline():
         json_path = report_dir / f"drift_report_{timestamp}.json"
         md_path = report_dir / f"drift_report_{timestamp}.md"
 
-        with open(text_path, 'w') as f:
+        with open(text_path, "w") as f:
             f.write(text_report)
         logger.info(f"Saved text report: {text_path}")
 
-        with open(json_path, 'w') as f:
+        with open(json_path, "w") as f:
             f.write(ReportGenerator.generate_json_report(summary))
         logger.info(f"Saved JSON report: {json_path}")
 
-        with open(md_path, 'w') as f:
+        with open(md_path, "w") as f:
             f.write(ReportGenerator.generate_markdown_report(summary))
         logger.info(f"Saved Markdown report: {md_path}")
 
@@ -144,7 +143,8 @@ def example_custom_analysis():
         print(f"\n{entity.upper()} ({len(drifts)} drifts):")
         for drift in drifts:
             print(
-                f"  [{drift.severity.value}] {drift.metric_name}: {drift.drift_score:.3f}")
+                f"  [{drift.severity.value}] {drift.metric_name}: {drift.drift_score:.3f}"
+            )
 
     # Custom analysis: Identify fields with multiple drift types
     field_drift_types = {}
@@ -155,9 +155,7 @@ def example_custom_analysis():
         field_drift_types[field_key].add(drift.drift_type.value)
 
     multi_drift_fields = {
-        field: types
-        for field, types in field_drift_types.items()
-        if len(types) > 1
+        field: types for field, types in field_drift_types.items() if len(types) > 1
     }
 
     if multi_drift_fields:
@@ -206,13 +204,14 @@ def example_threshold_tuning():
             avg = sum(scores) / len(scores)
             if avg > 0.8:
                 print(
-                    f"  {drift_type}: Consider LOWERING thresholds (many high-score drifts)")
+                    f"  {drift_type}: Consider LOWERING thresholds (many high-score drifts)"
+                )
             elif avg < 0.3:
                 print(
-                    f"  {drift_type}: Consider RAISING thresholds (many low-score drifts)")
+                    f"  {drift_type}: Consider RAISING thresholds (many low-score drifts)"
+                )
             else:
-                print(
-                    f"  {drift_type}: Current thresholds appear well-calibrated")
+                print(f"  {drift_type}: Current thresholds appear well-calibrated")
 
 
 if __name__ == "__main__":
