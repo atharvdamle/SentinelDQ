@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import psycopg2
-import psycopg2.extras
+import requests
 from confluent_kafka import Consumer, KafkaError
 from dotenv import load_dotenv
 from datetime import datetime
@@ -37,6 +37,10 @@ class PostgresConsumer:
             'host': os.getenv('POSTGRES_HOST', 'localhost'),
             'port': int(os.getenv('POSTGRES_PORT', '5432'))
         }
+        # Validator endpoint (env-configurable)
+        self.validator_url = os.getenv(
+            'VALIDATOR_URL', 'http://validator:8000/validate')
+        self.validator_timeout = float(os.getenv('VALIDATOR_TIMEOUT', '0.5'))
 
         # Initialize database
         self.init_db()
@@ -72,6 +76,43 @@ class PostgresConsumer:
 
     def store_event(self, event):
         """Store a single event in PostgreSQL."""
+        # Validate event with central validator service (fail-closed)
+        # Try the primary validator URL, but allow fallbacks to support host-run consumers.
+        fallback_env = os.getenv('VALIDATOR_FALLBACKS', '')
+        fallback_list = [u.strip()
+                         for u in fallback_env.split(',') if u.strip()]
+        # sensible defaults: localhost and host.docker.internal (useful on Docker for Windows)
+        default_fallbacks = ['http://localhost:8000/validate',
+                             'http://host.docker.internal:8000/validate']
+        try_urls = [self.validator_url] + fallback_list + default_fallbacks
+
+        status = None
+        last_err = None
+        for url in try_urls:
+            try:
+                resp = requests.post(
+                    url, json={"event": event}, timeout=self.validator_timeout)
+                resp.raise_for_status()
+                v = resp.json()
+                status = v.get('status')
+                # update validator_url to the working one for future calls
+                self.validator_url = url
+                break
+            except requests.exceptions.RequestException as e:
+                last_err = e
+                logger.debug(f"Validator call to {url} failed: {e}")
+                continue
+
+        if status is None:
+            logger.error(
+                f"Validator call failed (fail-closed). Attempts: {try_urls}. Last error: {last_err}")
+            # Fail-closed: do not store the event if validator is unavailable
+            return
+
+        if status == 'FAIL':
+            logger.info(
+                f"Event {event.get('id')} failed validation. Skipping insert.")
+            return
         insert_query = """
         INSERT INTO github_events (
             event_id, event_type, 
