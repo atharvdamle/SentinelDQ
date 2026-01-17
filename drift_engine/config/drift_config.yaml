@@ -1,0 +1,89 @@
+# SentinelDQ Drift Detection Configuration
+
+# Windowing Strategy
+windowing:
+  baseline:
+    days: 7  # Last 7 days (excluding current window)
+    description: "Historical normal behavior"
+  
+  current:
+    hours: 24  # Last 24 hours
+    description: "Active behavior to compare"
+  
+  gap_hours: 0  # Hours between baseline end and current start (0 = continuous)
+
+# Drift Detection Thresholds
+thresholds:
+  schema:
+    cardinality_warning_ratio: 2.0  # 2x increase
+    cardinality_critical_ratio: 5.0  # 5x increase
+  
+  distribution:
+    psi:
+      info: 0.1
+      warning: 0.25
+    
+    ks_test:
+      info_pvalue: 0.05
+      warning_pvalue: 0.01
+    
+    null_ratio_change:
+      warning: 0.1  # 10% absolute change
+      critical: 0.25  # 25% absolute change
+  
+  volume:
+    z_score:
+      info: 2.0
+      warning: 3.0
+    
+    percent_change:
+      info: 0.20  # 20%
+      warning: 0.50  # 50%
+
+# Drift Detection Targets
+targets:
+  schema_drift:
+    enabled: true
+    check_field_additions: true
+    check_field_removals: true
+    check_type_changes: true
+    check_cardinality: true
+  
+  distribution_drift:
+    enabled: true
+    categorical_fields:
+      - "type"
+      - "actor.login"
+      - "repo.name"
+    numerical_fields:
+      - "payload.size"
+    check_null_ratios: true
+  
+  volume_drift:
+    enabled: true
+    check_global_volume: true
+    check_per_entity_volume: true
+    top_n_entities: 50  # Check top N repos/actors
+
+# Profiling Configuration
+profiling:
+  min_sample_size: 100  # Minimum records required for drift detection
+  max_cardinality_track: 1000  # Don't track distributions for fields with > 1000 unique values
+  categorical_max_categories: 100  # For distribution tracking
+
+# Execution Configuration
+execution:
+  schedule_cron: "0 */6 * * *"  # Every 6 hours
+  parallel_workers: 4
+  timeout_seconds: 3600
+
+# Database Configuration
+database:
+  table_name: "drift_results"
+  batch_insert_size: 100
+
+# Observability
+observability:
+  emit_metrics: true
+  log_level: "INFO"
+  log_all_comparisons: false  # Log only detected drift, not all comparisons
