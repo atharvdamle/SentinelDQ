@@ -30,9 +30,7 @@ class ReportGenerator:
         lines.append("SENTINELDQ DRIFT DETECTION REPORT")
         lines.append("=" * 80)
         lines.append("")
-        lines.append(
-            f"Run Timestamp: {summary.run_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-        )
+        lines.append(f"Run Timestamp: {summary.run_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         lines.append("")
         lines.append(f"Baseline Window: {summary.baseline_window}")
         lines.append(f"Current Window:  {summary.current_window}")
@@ -176,9 +174,7 @@ class ReportGenerator:
         lines = []
         lines.append("# SentinelDQ Drift Detection Report")
         lines.append("")
-        lines.append(
-            f"**Run Timestamp:** {summary.run_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-        )
+        lines.append(f"**Run Timestamp:** {summary.run_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         lines.append("")
         lines.append(f"**Baseline Window:** {summary.baseline_window}")
         lines.append(f"**Current Window:** {summary.current_window}")
@@ -203,9 +199,7 @@ class ReportGenerator:
             lines.append(f"## 🚨 Critical Drifts ({len(critical)})")
             lines.append("")
             for drift in critical:
-                lines.append(
-                    f"### {drift.entity or 'global'}.{drift.field_name or 'N/A'}"
-                )
+                lines.append(f"### {drift.entity or 'global'}.{drift.field_name or 'N/A'}")
                 lines.append(f"- **Type:** {drift.drift_type.value}")
                 lines.append(f"- **Metric:** {drift.metric_name}")
                 lines.append(f"- **Drift Score:** {drift.drift_score:.3f}")
@@ -229,9 +223,7 @@ class ReportGenerator:
             lines.append(f"## ℹ️ Info Drifts ({len(info)})")
             lines.append("")
             for drift in info[:10]:
-                lines.append(
-                    f"- `{drift.entity or 'global'}.{drift.field_name or 'N/A'}`: {drift.metric_name}"
-                )
+                lines.append(f"- `{drift.entity or 'global'}.{drift.field_name or 'N/A'}`: {drift.metric_name}")
             if len(info) > 10:
                 lines.append(f"- ... and {len(info) - 10} more")
             lines.append("")

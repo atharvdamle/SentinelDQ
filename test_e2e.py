@@ -35,10 +35,7 @@ from colorama import Fore, Style
 colorama.init()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -49,30 +46,29 @@ class E2ETest:
 
     def load_env(self):
         """Load environment variables from .env file or set defaults."""
-        env_file = '.env'
+        env_file = ".env"
         if os.path.exists(env_file):
             with open(env_file) as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
                         os.environ[key.strip()] = value.strip()
 
         # Set defaults if not present
-        self.postgres_host = os.getenv('POSTGRES_HOST', 'localhost')
-        self.postgres_port = os.getenv('POSTGRES_PORT', '5432')
-        self.postgres_db = os.getenv('POSTGRES_DB', 'SentinelDQ_DB')
-        self.postgres_user = os.getenv('POSTGRES_USER', 'postgres')
-        self.postgres_password = os.getenv('POSTGRES_PASSWORD', 'postgres')
+        self.postgres_host = os.getenv("POSTGRES_HOST", "localhost")
+        self.postgres_port = os.getenv("POSTGRES_PORT", "5432")
+        self.postgres_db = os.getenv("POSTGRES_DB", "SentinelDQ_DB")
+        self.postgres_user = os.getenv("POSTGRES_USER", "postgres")
+        self.postgres_password = os.getenv("POSTGRES_PASSWORD", "postgres")
 
-        self.minio_address = os.getenv('MINIO_ADDRESS', 'localhost:9000')
-        self.minio_access_key = os.getenv('MINIO_ACCESS_KEY', 'minioadmin')
-        self.minio_secret_key = os.getenv('MINIO_SECRET_KEY', 'minioadmin')
-        self.minio_bucket = os.getenv('MINIO_BUCKET', 'github-events-backup')
+        self.minio_address = os.getenv("MINIO_ADDRESS", "localhost:9000")
+        self.minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+        self.minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+        self.minio_bucket = os.getenv("MINIO_BUCKET", "github-events-backup")
 
-        self.kafka_bootstrap = os.getenv(
-            'KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
-        self.kafka_topic = os.getenv('KAFKA_TOPIC', 'github_events')
+        self.kafka_bootstrap = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+        self.kafka_topic = os.getenv("KAFKA_TOPIC", "github_events")
 
     def print_step(self, step: str):
         """Print a test step with formatting."""
@@ -97,8 +93,7 @@ class E2ETest:
         """Run a shell command."""
         try:
             if capture_output:
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, check=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
                 return result.stdout
             else:
                 subprocess.run(cmd, check=True)
@@ -113,10 +108,10 @@ class E2ETest:
         self.print_step("Starting Docker Compose services")
 
         self.print_info("Stopping any existing services...")
-        subprocess.run(['docker-compose', 'down'], capture_output=True)
+        subprocess.run(["docker-compose", "down"], capture_output=True)
 
         self.print_info("Starting services with docker-compose up -d...")
-        self.run_command(['docker-compose', 'up', '-d'], capture_output=False)
+        self.run_command(["docker-compose", "up", "-d"], capture_output=False)
 
         self.print_success("Services started successfully")
 
@@ -125,10 +120,10 @@ class E2ETest:
         self.print_step("Waiting for services to be healthy")
 
         services = {
-            'Kafka': ('localhost', 9092),
-            'Postgres': ('localhost', int(self.postgres_port)),
-            'MinIO': ('localhost', 9000),
-            'Validator API': ('localhost', 8000)
+            "Kafka": ("localhost", 9092),
+            "Postgres": ("localhost", int(self.postgres_port)),
+            "MinIO": ("localhost", 9000),
+            "Validator API": ("localhost", 8000),
         }
 
         max_wait = 120  # 2 minutes
@@ -138,16 +133,15 @@ class E2ETest:
             self.print_info(f"Waiting for {service} at {host}:{port}...")
             while time.time() - start_time < max_wait:
                 try:
-                    if service == 'Validator API':
-                        response = requests.get(
-                            f'http://{host}:{port}/health', timeout=2)
+                    if service == "Validator API":
+                        response = requests.get(f"http://{host}:{port}/health", timeout=2)
                         if response.status_code == 200:
                             self.print_success(f"{service} is ready")
                             break
                     else:
                         import socket
-                        sock = socket.socket(
-                            socket.AF_INET, socket.SOCK_STREAM)
+
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         sock.settimeout(2)
                         result = sock.connect_ex((host, port))
                         sock.close()
@@ -162,8 +156,7 @@ class E2ETest:
                 return False
 
         # Extra time for services to fully initialize
-        self.print_info(
-            "Waiting additional 10 seconds for full initialization...")
+        self.print_info("Waiting additional 10 seconds for full initialization...")
         time.sleep(10)
         return True
 
@@ -172,52 +165,46 @@ class E2ETest:
         self.print_step(f"Producing {num_events} test GitHub events to Kafka")
 
         try:
-            producer = Producer({
-                'bootstrap.servers': self.kafka_bootstrap,
-                'client.id': 'e2e-test-producer'
-            })
+            producer = Producer({"bootstrap.servers": self.kafka_bootstrap, "client.id": "e2e-test-producer"})
 
             events_produced = 0
             for i in range(num_events):
                 event = {
-                    'id': f'test-event-{i}-{int(time.time())}',
-                    'type': 'PushEvent' if i % 2 == 0 else 'PullRequestEvent',
-                    'repo': {
-                        'id': 12345 + i,
-                        'name': f'test-org/test-repo-{i}',
-                        'url': f'https://api.github.com/repos/test-org/test-repo-{i}'
+                    "id": f"test-event-{i}-{int(time.time())}",
+                    "type": "PushEvent" if i % 2 == 0 else "PullRequestEvent",
+                    "repo": {
+                        "id": 12345 + i,
+                        "name": f"test-org/test-repo-{i}",
+                        "url": f"https://api.github.com/repos/test-org/test-repo-{i}",
                     },
-                    'actor': {
-                        'id': 1000 + i,
-                        'login': f'test-user-{i}',
-                        'url': f'https://api.github.com/users/test-user-{i}',
-                        'avatar_url': f'https://avatars.githubusercontent.com/u/{1000+i}'
+                    "actor": {
+                        "id": 1000 + i,
+                        "login": f"test-user-{i}",
+                        "url": f"https://api.github.com/users/test-user-{i}",
+                        "avatar_url": f"https://avatars.githubusercontent.com/u/{1000+i}",
                     },
-                    'payload': {
-                        'ref': 'refs/heads/main',
-                        'head': f'commit-hash-{i}',
-                        'before': f'previous-hash-{i}',
-                        'push_id': 9000 + i
+                    "payload": {
+                        "ref": "refs/heads/main",
+                        "head": f"commit-hash-{i}",
+                        "before": f"previous-hash-{i}",
+                        "push_id": 9000 + i,
                     },
-                    'public': True,
-                    'created_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                    "public": True,
+                    "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 }
 
                 producer.produce(
                     self.kafka_topic,
-                    value=json.dumps(event).encode('utf-8'),
-                    callback=lambda err, msg: logger.debug(
-                        f"Delivered: {msg.topic()}[{msg.partition()}]")
+                    value=json.dumps(event).encode("utf-8"),
+                    callback=lambda err, msg: logger.debug(f"Delivered: {msg.topic()}[{msg.partition()}]"),
                 )
                 events_produced += 1
 
             producer.flush(timeout=10)
-            self.print_success(
-                f"Produced {events_produced} events to Kafka topic '{self.kafka_topic}'")
+            self.print_success(f"Produced {events_produced} events to Kafka topic '{self.kafka_topic}'")
 
             # Wait for consumers to process
-            self.print_info(
-                "Waiting 15 seconds for consumers to process events...")
+            self.print_info("Waiting 15 seconds for consumers to process events...")
             time.sleep(15)
 
             return events_produced
@@ -236,17 +223,19 @@ class E2ETest:
                 port=self.postgres_port,
                 database=self.postgres_db,
                 user=self.postgres_user,
-                password=self.postgres_password
+                password=self.postgres_password,
             )
             cursor = conn.cursor()
 
             # Check if table exists
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
                     WHERE table_name = 'github_events'
                 )
-            """)
+            """
+            )
             table_exists = cursor.fetchone()[0]
 
             if not table_exists:
@@ -257,28 +246,25 @@ class E2ETest:
             cursor.execute("SELECT COUNT(*) FROM github_events")
             count = cursor.fetchone()[0]
 
-            self.print_info(
-                f"Found {count} events in Postgres (expected at least {expected_count})")
+            self.print_info(f"Found {count} events in Postgres (expected at least {expected_count})")
 
             if count >= expected_count:
-                self.print_success(
-                    f"Postgres contains sufficient events ({count} >= {expected_count})")
+                self.print_success(f"Postgres contains sufficient events ({count} >= {expected_count})")
 
                 # Show sample data
                 cursor.execute(
-                    "SELECT event_id, event_type, actor_login, repo_name, created_at FROM github_events LIMIT 3")
+                    "SELECT event_id, event_type, actor_login, repo_name, created_at FROM github_events LIMIT 3"
+                )
                 rows = cursor.fetchall()
                 self.print_info("Sample events:")
                 for row in rows:
-                    print(
-                        f"  - ID: {row[0]}, Type: {row[1]}, Actor: {row[2]}, Repo: {row[3]}")
+                    print(f"  - ID: {row[0]}, Type: {row[1]}, Actor: {row[2]}, Repo: {row[3]}")
 
                 cursor.close()
                 conn.close()
                 return True
             else:
-                self.print_error(
-                    f"Insufficient events in Postgres ({count} < {expected_count})")
+                self.print_error(f"Insufficient events in Postgres ({count} < {expected_count})")
                 cursor.close()
                 conn.close()
                 return False
@@ -293,14 +279,9 @@ class E2ETest:
 
         try:
             # Remove http:// prefix if present
-            minio_host = self.minio_address.replace('http://', '')
+            minio_host = self.minio_address.replace("http://", "")
 
-            client = Minio(
-                minio_host,
-                access_key=self.minio_access_key,
-                secret_key=self.minio_secret_key,
-                secure=False
-            )
+            client = Minio(minio_host, access_key=self.minio_access_key, secret_key=self.minio_secret_key, secure=False)
 
             bucket_name = self.minio_bucket
 
@@ -315,12 +296,10 @@ class E2ETest:
 
             for attempt in range(max_retries):
                 # List objects
-                objects = list(client.list_objects(
-                    bucket_name, recursive=True))
+                objects = list(client.list_objects(bucket_name, recursive=True))
 
                 if len(objects) > 0:
-                    self.print_success(
-                        f"Found {len(objects)} objects in MinIO bucket '{bucket_name}'")
+                    self.print_success(f"Found {len(objects)} objects in MinIO bucket '{bucket_name}'")
                     self.print_info("Sample objects:")
                     for obj in objects[:3]:
                         print(f"  - {obj.object_name} ({obj.size} bytes)")
@@ -328,14 +307,14 @@ class E2ETest:
 
                 if attempt < max_retries - 1:
                     self.print_info(
-                        f"No objects found yet, retrying in {retry_delay} seconds... (attempt {attempt + 1}/{max_retries})")
+                        f"No objects found yet, retrying in {retry_delay} seconds... (attempt {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(retry_delay)
 
-            # After all retries
+                # After all retries
                 return True
             else:
-                self.print_error(
-                    f"No objects found in MinIO bucket '{bucket_name}'")
+                self.print_error(f"No objects found in MinIO bucket '{bucket_name}'")
                 return False
 
         except S3Error as e:
@@ -351,12 +330,11 @@ class E2ETest:
 
         try:
             # Test health endpoint
-            response = requests.get('http://localhost:8000/health', timeout=5)
+            response = requests.get("http://localhost:8000/health", timeout=5)
             if response.status_code == 200:
                 self.print_success("Validator API health check passed")
             else:
-                self.print_error(
-                    f"Health check failed with status {response.status_code}")
+                self.print_error(f"Health check failed with status {response.status_code}")
                 return False
 
             # Get Postgres connection from earlier verification
@@ -365,7 +343,7 @@ class E2ETest:
                 port=self.postgres_port,
                 database=self.postgres_db,
                 user=self.postgres_user,
-                password=self.postgres_password
+                password=self.postgres_password,
             )
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM github_events LIMIT 1")
@@ -382,28 +360,23 @@ class E2ETest:
             sample_dict = dict(zip(columns, row))
             # Convert datetime objects to ISO format strings
             for key, value in sample_dict.items():
-                if hasattr(value, 'isoformat'):
+                if hasattr(value, "isoformat"):
                     sample_dict[key] = value.isoformat()
             sample_data = [sample_dict]
 
             # Test validation endpoint - API expects single event, not array
             response = requests.post(
-                'http://localhost:8000/validate',
-                json={
-                    'event': sample_dict,
-                    'event_id': str(sample_dict.get('event_id', 'test-event'))
-                },
-                timeout=10
+                "http://localhost:8000/validate",
+                json={"event": sample_dict, "event_id": str(sample_dict.get("event_id", "test-event"))},
+                timeout=10,
             )
 
             if response.status_code == 200:
                 result = response.json()
-                self.print_success(
-                    f"Validation completed: {result.get('summary', {})}")
+                self.print_success(f"Validation completed: {result.get('summary', {})}")
                 return True
             else:
-                self.print_error(
-                    f"Validation failed with status {response.status_code}: {response.text}")
+                self.print_error(f"Validation failed with status {response.status_code}: {response.text}")
                 return False
 
         except Exception as e:
@@ -416,32 +389,25 @@ class E2ETest:
 
         try:
             # Check if drift detector container is running
-            result = subprocess.run(
-                ['docker-compose', 'ps', 'drift-detector'],
-                capture_output=True,
-                text=True
-            )
+            result = subprocess.run(["docker-compose", "ps", "drift-detector"], capture_output=True, text=True)
 
-            if 'Up' in result.stdout or 'running' in result.stdout.lower():
+            if "Up" in result.stdout or "running" in result.stdout.lower():
                 self.print_success("Drift detector service is running")
 
                 # Check logs for drift detection activity
                 logs = subprocess.run(
-                    ['docker-compose', 'logs', '--tail=50', 'drift-detector'],
-                    capture_output=True,
-                    text=True
+                    ["docker-compose", "logs", "--tail=50", "drift-detector"], capture_output=True, text=True
                 )
 
-                if 'drift' in logs.stdout.lower() or 'profile' in logs.stdout.lower():
+                if "drift" in logs.stdout.lower() or "profile" in logs.stdout.lower():
                     self.print_success("Drift detection appears to be active")
                     self.print_info("Recent drift detector logs:")
-                    for line in logs.stdout.split('\n')[-5:]:
+                    for line in logs.stdout.split("\n")[-5:]:
                         if line.strip():
                             print(f"  {line}")
                     return True
                 else:
-                    self.print_info(
-                        "Drift detector running but no recent activity detected")
+                    self.print_info("Drift detector running but no recent activity detected")
                     return True
             else:
                 self.print_error("Drift detector service is not running")
@@ -456,14 +422,12 @@ class E2ETest:
         self.print_step("Cleaning up")
 
         self.print_info("Displaying service logs...")
-        subprocess.run(['docker-compose', 'logs', '--tail=20'],
-                       capture_output=False)
+        subprocess.run(["docker-compose", "logs", "--tail=20"], capture_output=False)
 
-        user_input = input(
-            f"\n{Fore.YELLOW}Stop all services? (y/n): {Style.RESET_ALL}")
-        if user_input.lower() == 'y':
+        user_input = input(f"\n{Fore.YELLOW}Stop all services? (y/n): {Style.RESET_ALL}")
+        if user_input.lower() == "y":
             self.print_info("Stopping services...")
-            subprocess.run(['docker-compose', 'down'], capture_output=False)
+            subprocess.run(["docker-compose", "down"], capture_output=False)
             self.print_success("Services stopped")
         else:
             self.print_info("Services left running for further inspection")
@@ -512,12 +476,10 @@ class E2ETest:
             print(f"\n{Fore.MAGENTA}{'='*80}{Style.RESET_ALL}")
             if self.test_passed:
                 print(f"{Fore.GREEN}✓ ALL TESTS PASSED{Style.RESET_ALL}")
-                print(
-                    f"{Fore.GREEN}The SentinelDQ pipeline is working end-to-end!{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}The SentinelDQ pipeline is working end-to-end!{Style.RESET_ALL}")
             else:
                 print(f"{Fore.RED}✗ SOME TESTS FAILED{Style.RESET_ALL}")
-                print(
-                    f"{Fore.YELLOW}Check the output above for details{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}Check the output above for details{Style.RESET_ALL}")
             print(f"{Fore.MAGENTA}{'='*80}{Style.RESET_ALL}\n")
 
             return self.test_passed
@@ -528,13 +490,14 @@ class E2ETest:
         except Exception as e:
             self.print_error(f"Test failed with exception: {e}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
             self.cleanup()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test = E2ETest()
     success = test.run()
     sys.exit(0 if success else 1)

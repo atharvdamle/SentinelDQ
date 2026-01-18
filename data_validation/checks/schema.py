@@ -25,7 +25,7 @@ def get_nested_value(data: Dict[str, Any], path: str) -> Optional[Any]:
         >>> get_nested_value({"actor": {"id": 123}}, "actor.login")
         None
     """
-    keys = path.split('.')
+    keys = path.split(".")
     current = data
 
     for key in keys:
@@ -52,7 +52,7 @@ def field_exists(data: Dict[str, Any], path: str) -> bool:
     Returns:
         True if field exists (even if None), False otherwise
     """
-    keys = path.split('.')
+    keys = path.split(".")
     current = data
 
     for i, key in enumerate(keys):
@@ -91,8 +91,8 @@ class SchemaChecker:
         Args:
             rules: The 'schema' section from validation rules
         """
-        self.required_fields = rules.get('required_fields', [])
-        self.optional_fields = rules.get('optional_fields', [])
+        self.required_fields = rules.get("required_fields", [])
+        self.optional_fields = rules.get("optional_fields", [])
 
     def validate(self, event: Dict[str, Any]) -> List[ValidationFailure]:
         """
@@ -108,45 +108,47 @@ class SchemaChecker:
 
         # Check required fields
         for field_rule in self.required_fields:
-            path = field_rule['path']
-            severity_str = field_rule.get('severity', 'FAIL')
-            description = field_rule.get(
-                'description', f'Required field: {path}')
+            path = field_rule["path"]
+            severity_str = field_rule.get("severity", "FAIL")
+            description = field_rule.get("description", f"Required field: {path}")
 
             if not field_exists(event, path):
                 severity = self._parse_severity(severity_str)
-                failures.append(ValidationFailure(
-                    check_name=f"schema.required_field.{path}",
-                    field_path=path,
-                    check_type="schema",
-                    severity=severity,
-                    error_message=f"Required field '{path}' is missing",
-                    expected_value="field present",
-                    actual_value="field missing",
-                    rule_definition=description
-                ))
+                failures.append(
+                    ValidationFailure(
+                        check_name=f"schema.required_field.{path}",
+                        field_path=path,
+                        check_type="schema",
+                        severity=severity,
+                        error_message=f"Required field '{path}' is missing",
+                        expected_value="field present",
+                        actual_value="field missing",
+                        rule_definition=description,
+                    )
+                )
 
         # Check optional fields (warning level)
         for field_rule in self.optional_fields:
-            path = field_rule['path']
-            severity_str = field_rule.get('severity', 'WARN')
-            description = field_rule.get(
-                'description', f'Optional field: {path}')
+            path = field_rule["path"]
+            severity_str = field_rule.get("severity", "WARN")
+            description = field_rule.get("description", f"Optional field: {path}")
 
             if not field_exists(event, path):
                 severity = self._parse_severity(severity_str)
                 # Only add if severity is not INFO (to avoid clutter)
                 if severity != Severity.INFO:
-                    failures.append(ValidationFailure(
-                        check_name=f"schema.optional_field.{path}",
-                        field_path=path,
-                        check_type="schema",
-                        severity=severity,
-                        error_message=f"Optional field '{path}' is missing",
-                        expected_value="field present (optional)",
-                        actual_value="field missing",
-                        rule_definition=description
-                    ))
+                    failures.append(
+                        ValidationFailure(
+                            check_name=f"schema.optional_field.{path}",
+                            field_path=path,
+                            check_type="schema",
+                            severity=severity,
+                            error_message=f"Optional field '{path}' is missing",
+                            expected_value="field present (optional)",
+                            actual_value="field missing",
+                            rule_definition=description,
+                        )
+                    )
 
         return failures
 
@@ -154,21 +156,20 @@ class SchemaChecker:
     def _parse_severity(severity_str: str) -> Severity:
         """Convert severity string to Severity enum."""
         severity_map = {
-            'FAIL': Severity.CRITICAL,
-            'CRITICAL': Severity.CRITICAL,
-            'WARN': Severity.WARNING,
-            'WARNING': Severity.WARNING,
-            'INFO': Severity.INFO
+            "FAIL": Severity.CRITICAL,
+            "CRITICAL": Severity.CRITICAL,
+            "WARN": Severity.WARNING,
+            "WARNING": Severity.WARNING,
+            "INFO": Severity.INFO,
         }
         return severity_map.get(severity_str.upper(), Severity.WARNING)
 
 
 # Utility functions for common schema operations
 
+
 def validate_required_fields(
-    event: Dict[str, Any],
-    required_paths: List[str],
-    severity: Severity = Severity.CRITICAL
+    event: Dict[str, Any], required_paths: List[str], severity: Severity = Severity.CRITICAL
 ) -> List[ValidationFailure]:
     """
     Quick validation of required fields without full rule structure.
@@ -187,23 +188,22 @@ def validate_required_fields(
 
     for path in required_paths:
         if not field_exists(event, path):
-            failures.append(ValidationFailure(
-                check_name=f"schema.required.{path}",
-                field_path=path,
-                check_type="schema",
-                severity=severity,
-                error_message=f"Required field '{path}' is missing",
-                expected_value="field present",
-                actual_value="field missing"
-            ))
+            failures.append(
+                ValidationFailure(
+                    check_name=f"schema.required.{path}",
+                    field_path=path,
+                    check_type="schema",
+                    severity=severity,
+                    error_message=f"Required field '{path}' is missing",
+                    expected_value="field present",
+                    actual_value="field missing",
+                )
+            )
 
     return failures
 
 
-def get_missing_fields(
-    event: Dict[str, Any],
-    expected_paths: List[str]
-) -> List[str]:
+def get_missing_fields(event: Dict[str, Any], expected_paths: List[str]) -> List[str]:
     """
     Get list of missing fields from event.
 
@@ -217,10 +217,7 @@ def get_missing_fields(
     return [path for path in expected_paths if not field_exists(event, path)]
 
 
-def get_present_fields(
-    event: Dict[str, Any],
-    field_paths: List[str]
-) -> List[str]:
+def get_present_fields(event: Dict[str, Any], field_paths: List[str]) -> List[str]:
     """
     Get list of present fields from event.
 

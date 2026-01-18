@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 def run_drift_detection():
     """Run drift detection and log results."""
     try:
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("Starting scheduled drift detection run")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         # Initialize drift runner
         runner = DriftRunner()
@@ -51,12 +51,10 @@ def run_drift_detection():
             )
         elif summary.warning_count > 0:
             logger.info(
-                f"Drift detection complete: {summary.warning_count} WARNING, "
-                f"{summary.info_count} INFO drifts"
+                f"Drift detection complete: {summary.warning_count} WARNING, " f"{summary.info_count} INFO drifts"
             )
         else:
-            logger.info(
-                f"Drift detection complete: {summary.info_count} INFO drifts")
+            logger.info(f"Drift detection complete: {summary.info_count} INFO drifts")
 
     except Exception as e:
         logger.error(f"Drift detection failed: {e}", exc_info=True)
@@ -68,8 +66,7 @@ def main():
 
     # Load schedule configuration
     runner = DriftRunner()
-    schedule_cron = runner.config.get("execution", {}).get(
-        "schedule_cron", "0 */6 * * *")
+    schedule_cron = runner.config.get("execution", {}).get("schedule_cron", "0 */6 * * *")
 
     # Parse cron: "0 */6 * * *" means every 6 hours
     # For simplicity, we'll use schedule library with hours
@@ -78,13 +75,11 @@ def main():
         parts = schedule_cron.split()
         if len(parts) >= 2 and parts[1].startswith("*/"):
             interval_hours = int(parts[1].replace("*/", ""))
-            logger.info(
-                f"Scheduling drift detection every {interval_hours} hours")
+            logger.info(f"Scheduling drift detection every {interval_hours} hours")
             schedule.every(interval_hours).hours.do(run_drift_detection)
         else:
             # Default to 6 hours if cron parsing fails
-            logger.warning(
-                f"Could not parse cron '{schedule_cron}', using default 6 hours")
+            logger.warning(f"Could not parse cron '{schedule_cron}', using default 6 hours")
             schedule.every(6).hours.do(run_drift_detection)
     except Exception as e:
         logger.error(f"Error parsing schedule: {e}, using default 6 hours")

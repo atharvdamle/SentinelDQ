@@ -12,10 +12,7 @@ from colorama import Fore, Style
 colorama.init()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("supervisor")
 
 
@@ -38,19 +35,17 @@ class ComponentSupervisor:
         try:
             # Create the process
             process = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", module_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                sys.executable, "-m", module_path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             self.processes[name] = process
 
             # Create tasks for reading stdout and stderr
-            self.log_tasks.extend([
-                asyncio.create_task(self.log_output(
-                    name, process.stdout, "INFO")),
-                asyncio.create_task(self.log_output(
-                    name, process.stderr, "ERROR"))
-            ])
+            self.log_tasks.extend(
+                [
+                    asyncio.create_task(self.log_output(name, process.stdout, "INFO")),
+                    asyncio.create_task(self.log_output(name, process.stderr, "ERROR")),
+                ]
+            )
 
             logger.info(f"Started {name} (PID: {process.pid})")
 
@@ -70,8 +65,7 @@ class ComponentSupervisor:
                 message = line.decode().strip()
 
                 # Format: [TIMESTAMP] COMPONENT_NAME: MESSAGE
-                print(
-                    f"{Fore.WHITE}[{timestamp}] {color}{name}: {message}{Style.RESET_ALL}")
+                print(f"{Fore.WHITE}[{timestamp}] {color}{name}: {message}{Style.RESET_ALL}")
 
             except Exception as e:
                 logger.error(f"Error reading {name} output: {e}")
@@ -83,7 +77,7 @@ class ComponentSupervisor:
             "github_producer": "ingestion.producers.github_producer",
             "postgres_consumer": "ingestion.consumers.postgres_consumer",
             "minio_consumer": "ingestion.consumers.minio_consumer",
-            "drift_detector": "drift_engine.drift_service"
+            "drift_detector": "drift_engine.drift_service",
         }
 
         print(f"{Fore.CYAN}Starting all components...{Style.RESET_ALL}")
@@ -125,6 +119,7 @@ async def main():
                 break
     finally:
         await supervisor.shutdown()
+
 
 if __name__ == "__main__":
     try:

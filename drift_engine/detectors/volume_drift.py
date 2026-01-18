@@ -32,9 +32,7 @@ class VolumeDriftDetector:
         self.z_score_info_threshold = config.get("z_score", {}).get("info", 2.0)
         self.z_score_warning_threshold = config.get("z_score", {}).get("warning", 3.0)
         self.percent_info_threshold = config.get("percent_change", {}).get("info", 0.20)
-        self.percent_warning_threshold = config.get("percent_change", {}).get(
-            "warning", 0.50
-        )
+        self.percent_warning_threshold = config.get("percent_change", {}).get("warning", 0.50)
 
     def detect(
         self,
@@ -72,9 +70,7 @@ class VolumeDriftDetector:
 
         # 2. Detect per-entity volume drift
         results.extend(
-            self._detect_per_entity_volume_drift(
-                baseline_profile, current_profile, baseline_window, current_window
-            )
+            self._detect_per_entity_volume_drift(baseline_profile, current_profile, baseline_window, current_window)
         )
 
         logger.info(f"Volume drift detection complete: {len(results)} drifts detected")
@@ -99,9 +95,7 @@ class VolumeDriftDetector:
         current_duration = current_window.duration_hours()
 
         if baseline_duration == 0 or current_duration == 0:
-            logger.warning(
-                "Window duration is zero, skipping global volume drift detection"
-            )
+            logger.warning("Window duration is zero, skipping global volume drift detection")
             return results
 
         baseline_rate = baseline_count / baseline_duration
@@ -117,9 +111,7 @@ class VolumeDriftDetector:
                 historical_rates.append(rate)
 
             mean_rate = sum(historical_rates) / len(historical_rates)
-            variance = sum((r - mean_rate) ** 2 for r in historical_rates) / len(
-                historical_rates
-            )
+            variance = sum((r - mean_rate) ** 2 for r in historical_rates) / len(historical_rates)
             std_rate = math.sqrt(variance) if variance > 0 else baseline_rate * 0.1
 
             z_score = (current_rate - mean_rate) / std_rate if std_rate > 0 else 0
@@ -129,23 +121,15 @@ class VolumeDriftDetector:
             z_score = (current_rate - baseline_rate) / std_rate if std_rate > 0 else 0
 
         # Calculate percentage change
-        percent_change = (
-            (current_rate - baseline_rate) / baseline_rate if baseline_rate > 0 else 0
-        )
+        percent_change = (current_rate - baseline_rate) / baseline_rate if baseline_rate > 0 else 0
 
         # Determine severity based on z-score
         abs_z_score = abs(z_score)
 
-        if (
-            abs_z_score >= self.z_score_warning_threshold
-            or abs(percent_change) >= self.percent_warning_threshold
-        ):
+        if abs_z_score >= self.z_score_warning_threshold or abs(percent_change) >= self.percent_warning_threshold:
             severity = Severity.CRITICAL
             drift_score = min(1.0, abs_z_score / 5.0)
-        elif (
-            abs_z_score >= self.z_score_info_threshold
-            or abs(percent_change) >= self.percent_info_threshold
-        ):
+        elif abs_z_score >= self.z_score_info_threshold or abs(percent_change) >= self.percent_info_threshold:
             severity = Severity.WARNING
             drift_score = abs_z_score / 5.0
         else:
@@ -202,9 +186,7 @@ class VolumeDriftDetector:
             current_entities = current_profile.per_entity[entity_field]
 
             # Check entities that exist in both
-            common_entities = set(baseline_entities.keys()) & set(
-                current_entities.keys()
-            )
+            common_entities = set(baseline_entities.keys()) & set(current_entities.keys())
 
             for entity_value in common_entities:
                 baseline_count = baseline_entities[entity_value]

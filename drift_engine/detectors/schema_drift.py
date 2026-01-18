@@ -133,9 +133,7 @@ class SchemaDriftDetector:
                     },
                 )
                 results.append(result)
-                logger.warning(
-                    f"[CRITICAL] Type change in {field}: {baseline_type} -> {current_type}"
-                )
+                logger.warning(f"[CRITICAL] Type change in {field}: {baseline_type} -> {current_type}")
 
             # Check cardinality explosion
             baseline_card = baseline_info.get("cardinality", 0)

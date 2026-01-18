@@ -24,7 +24,7 @@ from ..models.validation_result import (
     ValidationStatus,
     Severity,
     create_pass_result,
-    create_failure_result
+    create_failure_result,
 )
 from ..checks import (
     SchemaChecker,
@@ -33,7 +33,7 @@ from ..checks import (
     NullChecker,
     ConsistencyChecker,
     TimestampChecker,
-    get_nested_value
+    get_nested_value,
 )
 
 
@@ -67,7 +67,7 @@ class ValidationEngine:
         self,
         rules_path: Optional[str] = None,
         rules_dict: Optional[Dict[str, Any]] = None,
-        duplicate_cache: Optional[Any] = None
+        duplicate_cache: Optional[Any] = None,
     ):
         """
         Initialize validation engine.
@@ -90,20 +90,14 @@ class ValidationEngine:
 
         # Duplicate detection
         self.duplicate_cache = duplicate_cache or set()
-        self.duplicate_config = self.rules.get('duplicate_check', {})
+        self.duplicate_config = self.rules.get("duplicate_check", {})
 
         # Metadata
-        self.rules_version = self.rules.get('version', 'unknown')
-        self.event_type = self.rules.get('event_type', 'unknown')
+        self.rules_version = self.rules.get("version", "unknown")
+        self.event_type = self.rules.get("event_type", "unknown")
 
         # Statistics
-        self.stats = {
-            'total_validated': 0,
-            'passed': 0,
-            'warned': 0,
-            'failed': 0,
-            'total_failures': 0
-        }
+        self.stats = {"total_validated": 0, "passed": 0, "warned": 0, "failed": 0, "total_failures": 0}
 
     def _load_rules_from_file(self, rules_path: str) -> Dict[str, Any]:
         """Load validation rules from YAML file."""
@@ -112,7 +106,7 @@ class ValidationEngine:
         if not path.exists():
             raise FileNotFoundError(f"Rules file not found: {rules_path}")
 
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, "r", encoding="utf-8") as f:
             rules = yaml.safe_load(f)
 
         return rules
@@ -120,34 +114,31 @@ class ValidationEngine:
     def _initialize_checkers(self) -> None:
         """Initialize all validation check modules."""
         # Schema checker
-        schema_rules = self.rules.get('schema', {})
+        schema_rules = self.rules.get("schema", {})
         self.schema_checker = SchemaChecker(schema_rules)
 
         # Type checker
-        type_rules = self.rules.get('type_checks', [])
+        type_rules = self.rules.get("type_checks", [])
         self.type_checker = TypeChecker(type_rules)
 
         # Value checker
-        value_rules = self.rules.get('value_checks', [])
+        value_rules = self.rules.get("value_checks", [])
         self.value_checker = ValueChecker(value_rules)
 
         # Null checker
-        null_rules = self.rules.get('null_checks', [])
+        null_rules = self.rules.get("null_checks", [])
         self.null_checker = NullChecker(null_rules)
 
         # Timestamp checker
-        timestamp_rules = self.rules.get('timestamp_checks', [])
+        timestamp_rules = self.rules.get("timestamp_checks", [])
         self.timestamp_checker = TimestampChecker(timestamp_rules)
 
         # Consistency checker
-        consistency_rules = self.rules.get('consistency_checks', [])
+        consistency_rules = self.rules.get("consistency_checks", [])
         self.consistency_checker = ConsistencyChecker(consistency_rules)
 
     def validate_event(
-        self,
-        event: Dict[str, Any],
-        event_id: Optional[str] = None,
-        table_name: str = "github_events_raw"
+        self, event: Dict[str, Any], event_id: Optional[str] = None, table_name: str = "github_events_raw"
     ) -> ValidationResult:
         """
         Validate a single event against all rules.
@@ -173,7 +164,7 @@ class ValidationEngine:
 
         # Extract event ID if not provided
         if event_id is None:
-            event_id = str(get_nested_value(event, 'id') or 'unknown')
+            event_id = str(get_nested_value(event, "id") or "unknown")
 
         # Initialize result
         result = ValidationResult(
@@ -182,10 +173,10 @@ class ValidationEngine:
             status=ValidationStatus.PASS,
             failures=[],
             metadata={
-                'rules_version': self.rules_version,
-                'event_type': get_nested_value(event, 'type'),
-                'validation_engine': 'SentinelDQ'
-            }
+                "rules_version": self.rules_version,
+                "event_type": get_nested_value(event, "type"),
+                "validation_engine": "SentinelDQ",
+            },
         )
 
         # Run all validation checks
@@ -221,7 +212,7 @@ class ValidationEngine:
                 result.add_failure(failure)
 
             # 7. Duplicate detection
-            if self.duplicate_config.get('enabled', False):
+            if self.duplicate_config.get("enabled", False):
                 duplicate_failure = self._check_duplicate(event)
                 if duplicate_failure:
                     result.add_failure(duplicate_failure)
@@ -231,14 +222,16 @@ class ValidationEngine:
 
         except Exception as e:
             # Catch any unexpected errors in validation
-            result.add_failure(ValidationFailure(
-                check_name="validation_engine.error",
-                field_path="<engine>",
-                check_type="system",
-                severity=Severity.CRITICAL,
-                error_message=f"Validation engine error: {str(e)}",
-                actual_value=str(e)
-            ))
+            result.add_failure(
+                ValidationFailure(
+                    check_name="validation_engine.error",
+                    field_path="<engine>",
+                    check_type="system",
+                    severity=Severity.CRITICAL,
+                    error_message=f"Validation engine error: {str(e)}",
+                    actual_value=str(e),
+                )
+            )
 
         # Calculate processing time
         end_time = time.time()
@@ -247,9 +240,7 @@ class ValidationEngine:
         return result
 
     def validate_batch(
-        self,
-        events: List[Dict[str, Any]],
-        table_name: str = "github_events_raw"
+        self, events: List[Dict[str, Any]], table_name: str = "github_events_raw"
     ) -> List[ValidationResult]:
         """
         Validate a batch of events.
@@ -264,7 +255,7 @@ class ValidationEngine:
         results = []
 
         for event in events:
-            event_id = str(get_nested_value(event, 'id') or 'unknown')
+            event_id = str(get_nested_value(event, "id") or "unknown")
             result = self.validate_event(event, event_id, table_name)
             results.append(result)
 
@@ -283,7 +274,7 @@ class ValidationEngine:
         Returns:
             ValidationFailure if duplicate, None otherwise
         """
-        key_field = self.duplicate_config.get('key_field', 'id')
+        key_field = self.duplicate_config.get("key_field", "id")
         event_key = get_nested_value(event, key_field)
 
         if event_key is None:
@@ -291,10 +282,9 @@ class ValidationEngine:
 
         # Check cache
         if event_key in self.duplicate_cache:
-            severity_str = self.duplicate_config.get('severity', 'FAIL')
+            severity_str = self.duplicate_config.get("severity", "FAIL")
             severity = self._parse_severity(severity_str)
-            error_message = self.duplicate_config.get('error_message',
-                                                      'Duplicate event detected')
+            error_message = self.duplicate_config.get("error_message", "Duplicate event detected")
 
             return ValidationFailure(
                 check_name=f"duplicate.{key_field}",
@@ -303,7 +293,7 @@ class ValidationEngine:
                 severity=severity,
                 error_message=error_message,
                 expected_value="unique value",
-                actual_value=f"duplicate: {event_key}"
+                actual_value=f"duplicate: {event_key}",
             )
 
         # Add to cache
@@ -316,16 +306,16 @@ class ValidationEngine:
 
     def _update_stats(self, result: ValidationResult) -> None:
         """Update engine statistics."""
-        self.stats['total_validated'] += 1
+        self.stats["total_validated"] += 1
 
         if result.status == ValidationStatus.PASS:
-            self.stats['passed'] += 1
+            self.stats["passed"] += 1
         elif result.status == ValidationStatus.WARN:
-            self.stats['warned'] += 1
+            self.stats["warned"] += 1
         elif result.status == ValidationStatus.FAIL:
-            self.stats['failed'] += 1
+            self.stats["failed"] += 1
 
-        self.stats['total_failures'] += len(result.failures)
+        self.stats["total_failures"] += len(result.failures)
 
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -334,37 +324,29 @@ class ValidationEngine:
         Returns:
             Dictionary with validation stats
         """
-        total = self.stats['total_validated']
+        total = self.stats["total_validated"]
 
         return {
             **self.stats,
-            'pass_rate': self.stats['passed'] / total if total > 0 else 0,
-            'warn_rate': self.stats['warned'] / total if total > 0 else 0,
-            'fail_rate': self.stats['failed'] / total if total > 0 else 0,
-            'avg_failures_per_event': (
-                self.stats['total_failures'] / total if total > 0 else 0
-            )
+            "pass_rate": self.stats["passed"] / total if total > 0 else 0,
+            "warn_rate": self.stats["warned"] / total if total > 0 else 0,
+            "fail_rate": self.stats["failed"] / total if total > 0 else 0,
+            "avg_failures_per_event": (self.stats["total_failures"] / total if total > 0 else 0),
         }
 
     def reset_statistics(self) -> None:
         """Reset validation statistics."""
-        self.stats = {
-            'total_validated': 0,
-            'passed': 0,
-            'warned': 0,
-            'failed': 0,
-            'total_failures': 0
-        }
+        self.stats = {"total_validated": 0, "passed": 0, "warned": 0, "failed": 0, "total_failures": 0}
 
     @staticmethod
     def _parse_severity(severity_str: str) -> Severity:
         """Convert severity string to Severity enum."""
         severity_map = {
-            'FAIL': Severity.CRITICAL,
-            'CRITICAL': Severity.CRITICAL,
-            'WARN': Severity.WARNING,
-            'WARNING': Severity.WARNING,
-            'INFO': Severity.INFO
+            "FAIL": Severity.CRITICAL,
+            "CRITICAL": Severity.CRITICAL,
+            "WARN": Severity.WARNING,
+            "WARNING": Severity.WARNING,
+            "INFO": Severity.INFO,
         }
         return severity_map.get(severity_str.upper(), Severity.WARNING)
 
@@ -381,9 +363,9 @@ class ValidationEngine:
 
 # Factory function for easy engine creation
 
+
 def create_validation_engine(
-    rules_file: str = "rules/github_events.yaml",
-    base_path: Optional[str] = None
+    rules_file: str = "rules/github_events.yaml", base_path: Optional[str] = None
 ) -> ValidationEngine:
     """
     Factory function to create validation engine with default settings.

@@ -53,8 +53,7 @@ class PrometheusMetrics:
         self.failures_by_severity: Dict[str, int] = defaultdict(int)
 
         # Processing time histogram (buckets in seconds)
-        self.duration_buckets = [0.001, 0.005,
-                                 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+        self.duration_buckets = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
         self.duration_counts = defaultdict(int)
         self.duration_sum = 0.0
         self.duration_count = 0
@@ -101,16 +100,18 @@ class PrometheusMetrics:
 
         # Track recent failures
         if result.status in (ValidationStatus.WARN, ValidationStatus.FAIL):
-            self.recent_failures.append({
-                'event_id': result.event_id,
-                'status': result.status.value,
-                'failures': len(result.failures),
-                'timestamp': result.validation_timestamp.isoformat()
-            })
+            self.recent_failures.append(
+                {
+                    "event_id": result.event_id,
+                    "status": result.status.value,
+                    "failures": len(result.failures),
+                    "timestamp": result.validation_timestamp.isoformat(),
+                }
+            )
 
             # Keep only recent failures
             if len(self.recent_failures) > self.max_recent_failures:
-                self.recent_failures = self.recent_failures[-self.max_recent_failures:]
+                self.recent_failures = self.recent_failures[-self.max_recent_failures :]
 
     def export_text(self) -> str:
         """
@@ -126,81 +127,65 @@ class PrometheusMetrics:
         lines.append("")
 
         # Total validations
-        lines.append(
-            "# HELP sentineldq_validation_total Total number of events validated")
+        lines.append("# HELP sentineldq_validation_total Total number of events validated")
         lines.append("# TYPE sentineldq_validation_total counter")
         lines.append(f"sentineldq_validation_total {self.total_validations}")
         lines.append("")
 
         # Passed validations
-        lines.append(
-            "# HELP sentineldq_validation_passed Events that passed validation")
+        lines.append("# HELP sentineldq_validation_passed Events that passed validation")
         lines.append("# TYPE sentineldq_validation_passed counter")
         lines.append(f"sentineldq_validation_passed {self.passed_validations}")
         lines.append("")
 
         # Warned validations
-        lines.append(
-            "# HELP sentineldq_validation_warned Events with warnings")
+        lines.append("# HELP sentineldq_validation_warned Events with warnings")
         lines.append("# TYPE sentineldq_validation_warned counter")
         lines.append(f"sentineldq_validation_warned {self.warned_validations}")
         lines.append("")
 
         # Failed validations
-        lines.append(
-            "# HELP sentineldq_validation_failed Events that failed validation")
+        lines.append("# HELP sentineldq_validation_failed Events that failed validation")
         lines.append("# TYPE sentineldq_validation_failed counter")
         lines.append(f"sentineldq_validation_failed {self.failed_validations}")
         lines.append("")
 
         # Failures by check type
-        lines.append(
-            "# HELP sentineldq_validation_check_failures Validation failures by check type")
+        lines.append("# HELP sentineldq_validation_check_failures Validation failures by check type")
         lines.append("# TYPE sentineldq_validation_check_failures counter")
         for check_type, count in sorted(self.failures_by_check.items()):
-            lines.append(
-                f'sentineldq_validation_check_failures{{check_type="{check_type}"}} {count}')
+            lines.append(f'sentineldq_validation_check_failures{{check_type="{check_type}"}} {count}')
         lines.append("")
 
         # Failures by severity
-        lines.append(
-            "# HELP sentineldq_validation_severity_failures Failures by severity level")
+        lines.append("# HELP sentineldq_validation_severity_failures Failures by severity level")
         lines.append("# TYPE sentineldq_validation_severity_failures counter")
         for severity, count in sorted(self.failures_by_severity.items()):
-            lines.append(
-                f'sentineldq_validation_severity_failures{{severity="{severity}"}} {count}')
+            lines.append(f'sentineldq_validation_severity_failures{{severity="{severity}"}} {count}')
         lines.append("")
 
         # Processing duration histogram
-        lines.append(
-            "# HELP sentineldq_validation_duration_seconds Validation processing time distribution")
+        lines.append("# HELP sentineldq_validation_duration_seconds Validation processing time distribution")
         lines.append("# TYPE sentineldq_validation_duration_seconds histogram")
         cumulative = 0
         for bucket in sorted(self.duration_buckets):
             cumulative += self.duration_counts[bucket]
-            lines.append(
-                f'sentineldq_validation_duration_seconds_bucket{{le="{bucket}"}} {cumulative}')
-        lines.append(
-            f'sentineldq_validation_duration_seconds_bucket{{le="+Inf"}} {self.duration_count}')
-        lines.append(
-            f'sentineldq_validation_duration_seconds_sum {self.duration_sum:.6f}')
-        lines.append(
-            f'sentineldq_validation_duration_seconds_count {self.duration_count}')
+            lines.append(f'sentineldq_validation_duration_seconds_bucket{{le="{bucket}"}} {cumulative}')
+        lines.append(f'sentineldq_validation_duration_seconds_bucket{{le="+Inf"}} {self.duration_count}')
+        lines.append(f"sentineldq_validation_duration_seconds_sum {self.duration_sum:.6f}")
+        lines.append(f"sentineldq_validation_duration_seconds_count {self.duration_count}")
         lines.append("")
 
         # Pass rate (derived metric)
-        pass_rate = (self.passed_validations /
-                     self.total_validations) if self.total_validations > 0 else 0
-        lines.append(
-            "# HELP sentineldq_validation_pass_rate Ratio of passed validations")
+        pass_rate = (self.passed_validations / self.total_validations) if self.total_validations > 0 else 0
+        lines.append("# HELP sentineldq_validation_pass_rate Ratio of passed validations")
         lines.append("# TYPE sentineldq_validation_pass_rate gauge")
         lines.append(f"sentineldq_validation_pass_rate {pass_rate:.4f}")
         lines.append("")
 
         # Uptime
         uptime = time.time() - self.start_time
-        lines.append(
-            "# HELP sentineldq_validation_uptime_seconds Time since metrics started")
+        lines.append("# HELP sentineldq_validation_uptime_seconds Time since metrics started")
         lines.append("# TYPE sentineldq_validation_uptime_seconds counter")
         lines.append(f"sentineldq_validation_uptime_seconds {uptime:.2f}")
         lines.append("")
@@ -214,29 +199,25 @@ class PrometheusMetrics:
         Returns:
             Metrics as dictionary
         """
-        pass_rate = (self.passed_validations /
-                     self.total_validations) if self.total_validations > 0 else 0
-        warn_rate = (self.warned_validations /
-                     self.total_validations) if self.total_validations > 0 else 0
-        fail_rate = (self.failed_validations /
-                     self.total_validations) if self.total_validations > 0 else 0
-        avg_duration = (self.duration_sum /
-                        self.duration_count) if self.duration_count > 0 else 0
+        pass_rate = (self.passed_validations / self.total_validations) if self.total_validations > 0 else 0
+        warn_rate = (self.warned_validations / self.total_validations) if self.total_validations > 0 else 0
+        fail_rate = (self.failed_validations / self.total_validations) if self.total_validations > 0 else 0
+        avg_duration = (self.duration_sum / self.duration_count) if self.duration_count > 0 else 0
 
         return {
-            'total_validations': self.total_validations,
-            'passed_validations': self.passed_validations,
-            'warned_validations': self.warned_validations,
-            'failed_validations': self.failed_validations,
-            'pass_rate': pass_rate,
-            'warn_rate': warn_rate,
-            'fail_rate': fail_rate,
-            'avg_processing_time_seconds': avg_duration,
-            'total_processing_time_seconds': self.duration_sum,
-            'failures_by_check': dict(self.failures_by_check),
-            'failures_by_severity': dict(self.failures_by_severity),
-            'recent_failures': self.recent_failures[-10:],  # Last 10
-            'uptime_seconds': time.time() - self.start_time
+            "total_validations": self.total_validations,
+            "passed_validations": self.passed_validations,
+            "warned_validations": self.warned_validations,
+            "failed_validations": self.failed_validations,
+            "pass_rate": pass_rate,
+            "warn_rate": warn_rate,
+            "fail_rate": fail_rate,
+            "avg_processing_time_seconds": avg_duration,
+            "total_processing_time_seconds": self.duration_sum,
+            "failures_by_check": dict(self.failures_by_check),
+            "failures_by_severity": dict(self.failures_by_severity),
+            "recent_failures": self.recent_failures[-10:],  # Last 10
+            "uptime_seconds": time.time() - self.start_time,
         }
 
     def reset(self) -> None:
@@ -263,21 +244,20 @@ class PrometheusMetrics:
         total = self.total_validations
 
         if total == 0:
-            return {'no_data': True}
+            return {"no_data": True}
 
         fail_rate = self.failed_validations / total
         warn_rate = self.warned_validations / total
-        avg_duration = self.duration_sum / \
-            self.duration_count if self.duration_count > 0 else 0
+        avg_duration = self.duration_sum / self.duration_count if self.duration_count > 0 else 0
 
         return {
-            'high_failure_rate': fail_rate > 0.05,  # More than 5% failures
-            'high_warning_rate': warn_rate > 0.20,  # More than 20% warnings
-            'slow_validation': avg_duration > 0.1,  # Slower than 100ms average
-            'no_data': total == 0,
-            'failure_rate': fail_rate,
-            'warning_rate': warn_rate,
-            'avg_duration_seconds': avg_duration
+            "high_failure_rate": fail_rate > 0.05,  # More than 5% failures
+            "high_warning_rate": warn_rate > 0.20,  # More than 20% warnings
+            "slow_validation": avg_duration > 0.1,  # Slower than 100ms average
+            "no_data": total == 0,
+            "failure_rate": fail_rate,
+            "warning_rate": warn_rate,
+            "avg_duration_seconds": avg_duration,
         }
 
 
@@ -306,6 +286,7 @@ def reset_metrics() -> None:
 
 
 # HTTP endpoint function (for integration with web frameworks)
+
 
 def metrics_endpoint() -> str:
     """

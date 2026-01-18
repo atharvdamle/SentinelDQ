@@ -31,14 +31,12 @@ class DriftDetector:
         Args:
             rules: The 'drift_detection' section from validation rules
         """
-        self.enabled = rules.get('enabled', False)
-        self.schema_drift_config = rules.get('schema_drift', {})
-        self.distribution_drift_config = rules.get('distribution_drift', {})
+        self.enabled = rules.get("enabled", False)
+        self.schema_drift_config = rules.get("schema_drift", {})
+        self.distribution_drift_config = rules.get("distribution_drift", {})
 
     def detect_schema_drift(
-        self,
-        current_batch: List[Dict[str, Any]],
-        baseline_schema: Optional[Dict[str, Any]] = None
+        self, current_batch: List[Dict[str, Any]], baseline_schema: Optional[Dict[str, Any]] = None
     ) -> List[ValidationFailure]:
         """
         Detect schema drift in a batch of events.
@@ -76,9 +74,7 @@ class DriftDetector:
         return []
 
     def detect_distribution_drift(
-        self,
-        current_batch: List[Dict[str, Any]],
-        baseline_window_days: int = 7
+        self, current_batch: List[Dict[str, Any]], baseline_window_days: int = 7
     ) -> List[ValidationFailure]:
         """
         Detect distribution drift in field values.
@@ -114,10 +110,7 @@ class DriftDetector:
 
         return []
 
-    def calculate_batch_statistics(
-        self,
-        batch: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def calculate_batch_statistics(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Calculate statistical summary of a batch.
 
@@ -141,9 +134,9 @@ class DriftDetector:
 
         # Stub: Basic implementation
         return {
-            'batch_size': len(batch),
-            'timestamp': datetime.utcnow().isoformat(),
-            'event_types': self._count_event_types(batch),
+            "batch_size": len(batch),
+            "timestamp": datetime.utcnow().isoformat(),
+            "event_types": self._count_event_types(batch),
             # More statistics to be added in Phase 2
         }
 
@@ -151,7 +144,7 @@ class DriftDetector:
         """Count events by type."""
         counts: Dict[str, int] = {}
         for event in batch:
-            event_type = get_nested_value(event, 'type')
+            event_type = get_nested_value(event, "type")
             if event_type:
                 counts[event_type] = counts.get(event_type, 0) + 1
         return counts
@@ -189,11 +182,7 @@ class SchemaDriftDetector:
         # To be implemented in Phase 2
         pass
 
-    def compare_schemas(
-        self,
-        current: Dict[str, Any],
-        baseline: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def compare_schemas(self, current: Dict[str, Any], baseline: Dict[str, Any]) -> Dict[str, Any]:
         """
         Compare two schemas and report differences.
 
@@ -223,11 +212,7 @@ class DistributionDriftDetector:
     def __init__(self):
         pass
 
-    def calculate_distribution(
-        self,
-        batch: List[Dict[str, Any]],
-        field: str
-    ) -> Dict[Any, float]:
+    def calculate_distribution(self, batch: List[Dict[str, Any]], field: str) -> Dict[Any, float]:
         """
         Calculate value distribution for a field.
 
@@ -243,10 +228,7 @@ class DistributionDriftDetector:
         pass
 
     def chi_square_test(
-        self,
-        current_dist: Dict[Any, float],
-        baseline_dist: Dict[Any, float],
-        significance_level: float = 0.05
+        self, current_dist: Dict[Any, float], baseline_dist: Dict[Any, float], significance_level: float = 0.05
     ) -> Dict[str, Any]:
         """
         Perform chi-square test for categorical distribution drift.
@@ -265,10 +247,8 @@ class DistributionDriftDetector:
 
 # Utility functions for Phase 2
 
-def detect_new_fields(
-    current_events: List[Dict[str, Any]],
-    baseline_fields: List[str]
-) -> List[str]:
+
+def detect_new_fields(current_events: List[Dict[str, Any]], baseline_fields: List[str]) -> List[str]:
     """
     Detect fields that appear in current events but not in baseline.
 
@@ -284,9 +264,7 @@ def detect_new_fields(
 
 
 def detect_missing_fields(
-    current_events: List[Dict[str, Any]],
-    baseline_fields: List[str],
-    threshold: float = 0.9
+    current_events: List[Dict[str, Any]], baseline_fields: List[str], threshold: float = 0.9
 ) -> List[str]:
     """
     Detect fields that were expected but are missing or rare.
