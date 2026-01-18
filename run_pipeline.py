@@ -30,6 +30,7 @@ class ComponentSupervisor:
             "github_producer": Fore.GREEN,
             "postgres_consumer": Fore.BLUE,
             "minio_consumer": Fore.YELLOW,
+            "drift_detector": Fore.MAGENTA,
         }
 
     async def start_component(self, name: str, module_path: str):
@@ -81,7 +82,8 @@ class ComponentSupervisor:
         components = {
             "github_producer": "ingestion.producers.github_producer",
             "postgres_consumer": "ingestion.consumers.postgres_consumer",
-            "minio_consumer": "ingestion.consumers.minio_consumer"
+            "minio_consumer": "ingestion.consumers.minio_consumer",
+            "drift_detector": "drift_engine.drift_service"
         }
 
         print(f"{Fore.CYAN}Starting all components...{Style.RESET_ALL}")

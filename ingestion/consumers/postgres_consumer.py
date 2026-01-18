@@ -46,8 +46,8 @@ class PostgresConsumer:
         self.init_db()
 
     def init_db(self):
-        """Initialize the database table."""
-        create_table_query = """
+        """Initialize the database tables."""
+        create_events_table = """
         CREATE TABLE IF NOT EXISTS github_events (
             id SERIAL PRIMARY KEY,
             event_id TEXT UNIQUE,
@@ -69,10 +69,22 @@ class PostgresConsumer:
         );
         """
 
+        # Create processed events table for drift detection
+        create_processed_table = """
+        CREATE TABLE IF NOT EXISTS github_events_processed (
+            id SERIAL PRIMARY KEY,
+            event_id TEXT UNIQUE,
+            event_data JSONB,
+            processed_at TIMESTAMP DEFAULT NOW(),
+            validation_status TEXT
+        );
+        """
+
         with psycopg2.connect(**self.db_config) as conn:
             with conn.cursor() as cur:
-                cur.execute(create_table_query)
-        logger.info("Database table initialized")
+                cur.execute(create_events_table)
+                cur.execute(create_processed_table)
+        logger.info("Database tables initialized")
 
     def store_event(self, event):
         """Store a single event in PostgreSQL."""
@@ -125,6 +137,15 @@ class PostgresConsumer:
         ON CONFLICT (event_id) DO NOTHING
         """
 
+        # Also insert into processed table for drift detection
+        insert_processed_query = """
+        INSERT INTO github_events_processed (
+            event_id, event_data, validation_status
+        )
+        VALUES (%s, %s, %s)
+        ON CONFLICT (event_id) DO NOTHING
+        """
+
         try:
             with psycopg2.connect(**self.db_config) as conn:
                 with conn.cursor() as cur:
@@ -147,6 +168,15 @@ class PostgresConsumer:
                             event['public'],
                             datetime.strptime(
                                 event['created_at'], '%Y-%m-%dT%H:%M:%SZ')
+                        )
+                    )
+                    # Also insert into processed table
+                    cur.execute(
+                        insert_processed_query,
+                        (
+                            event['id'],
+                            json.dumps(event),
+                            status if status else 'unknown'
                         )
                     )
             logger.info(f"Stored event {event['id']} in PostgreSQL")

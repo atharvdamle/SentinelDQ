@@ -10,10 +10,10 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
       
       # Listeners Configuration
-      KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:29093'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
-      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:19092,CONTROLLER://:29093'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:19092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT_INTERNAL'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       
       # Storage Configuration
@@ -91,6 +91,81 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+    networks:
+      - app-network
+
+  github-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      PYTHONUNBUFFERED: '1'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_TOPIC: ${KAFKA_TOPIC}
+      GITHUB_EVENTS_URL: ${GITHUB_EVENTS_URL}
+      GITHUB_POLL_INTERVAL_SECONDS: ${GITHUB_POLL_INTERVAL_SECONDS}
+    command: ["python", "scripts/wait_and_run.py", "kafka:19092", "--", "python", "-m", "ingestion.producers.github_producer"]
+    networks:
+      - app-network
+
+  postgres-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      PYTHONUNBUFFERED: '1'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_TOPIC: ${KAFKA_TOPIC}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: ["python", "scripts/wait_and_run.py", "kafka:19092", "postgres:${POSTGRES_PORT}", "--", "python", "-m", "ingestion.consumers.postgres_consumer"]
+    networks:
+      - app-network
+
+  minio-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - kafka
+      - minio
+    environment:
+      PYTHONUNBUFFERED: '1'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_TOPIC: ${KAFKA_TOPIC}
+      MINIO_HOST: minio
+      MINIO_API_PORT: '9000'
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_SECURE: 'False'
+    command: ["python", "scripts/wait_and_run.py", "kafka:19092", "minio:9000", "--", "python", "-m", "ingestion.consumers.minio_consumer"]
+    networks:
+      - app-network
+
+  drift-detector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - postgres
+    environment:
+      PYTHONUNBUFFERED: '1'
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Run drift detection service with scheduling
+    command: ["python", "scripts/wait_and_run.py", "postgres:${POSTGRES_PORT}", "--", "python", "-m", "drift_engine.drift_service"]
     networks:
       - app-network
 
