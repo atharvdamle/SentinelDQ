@@ -125,16 +125,16 @@ class PostgresValidationWriter:
         result_dict = result.to_dict()
 
         values = (
-            result_dict['event_id'],
-            result_dict['table_name'],
-            result_dict['status'],
-            result_dict['failed_checks'],  # Already JSON string
-            result_dict['error_messages'],  # Already JSON string
-            result_dict['severity'],
-            result_dict['validation_ts'],
-            result_dict.get('processing_time_ms'),
-            result_dict.get('metadata', '{}'),  # Already JSON string
-            result_dict.get('failure_details', '[]')  # Already JSON string
+            result_dict["event_id"],
+            result_dict["table_name"],
+            result_dict["status"],
+            result_dict["failed_checks"],  # Already JSON string
+            result_dict["error_messages"],  # Already JSON string
+            result_dict["severity"],
+            result_dict["validation_ts"],
+            result_dict.get("processing_time_ms"),
+            result_dict.get("metadata", "{}"),  # Already JSON string
+            result_dict.get("failure_details", "[]"),  # Already JSON string
         )
 
         try:
@@ -172,16 +172,16 @@ class PostgresValidationWriter:
         for result in results:
             result_dict = result.to_dict()
             values = (
-                result_dict['event_id'],
-                result_dict['table_name'],
-                result_dict['status'],
-                result_dict['failed_checks'],
-                result_dict['error_messages'],
-                result_dict['severity'],
-                result_dict['validation_ts'],
-                result_dict.get('processing_time_ms'),
-                result_dict.get('metadata', '{}'),
-                result_dict.get('failure_details', '[]')
+                result_dict["event_id"],
+                result_dict["table_name"],
+                result_dict["status"],
+                result_dict["failed_checks"],
+                result_dict["error_messages"],
+                result_dict["severity"],
+                result_dict["validation_ts"],
+                result_dict.get("processing_time_ms"),
+                result_dict.get("metadata", "{}"),
+                result_dict.get("failure_details", "[]"),
             )
             values_list.append(values)
 
@@ -194,9 +194,7 @@ class PostgresValidationWriter:
             raise RuntimeError(f"Failed to write validation batch: {e}")
 
     def get_validation_stats(
-        self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        self, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None
     ) -> Dict[str, Any]:
         """
         Get validation statistics from database.
@@ -245,25 +243,21 @@ class PostgresValidationWriter:
                 total = row[0] or 0
 
                 return {
-                    'total': total,
-                    'passed': row[1] or 0,
-                    'warned': row[2] or 0,
-                    'failed': row[3] or 0,
-                    'pass_rate': (row[1] or 0) / total if total > 0 else 0,
-                    'warn_rate': (row[2] or 0) / total if total > 0 else 0,
-                    'fail_rate': (row[3] or 0) / total if total > 0 else 0,
-                    'avg_processing_time_ms': row[4] or 0,
-                    'earliest_validation': row[5],
-                    'latest_validation': row[6]
+                    "total": total,
+                    "passed": row[1] or 0,
+                    "warned": row[2] or 0,
+                    "failed": row[3] or 0,
+                    "pass_rate": (row[1] or 0) / total if total > 0 else 0,
+                    "warn_rate": (row[2] or 0) / total if total > 0 else 0,
+                    "fail_rate": (row[3] or 0) / total if total > 0 else 0,
+                    "avg_processing_time_ms": row[4] or 0,
+                    "earliest_validation": row[5],
+                    "latest_validation": row[6],
                 }
         except psycopg2.Error as e:
             raise RuntimeError(f"Failed to get validation stats: {e}")
 
-    def get_recent_failures(
-        self,
-        limit: int = 100,
-        severity: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    def get_recent_failures(self, limit: int = 100, severity: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get recent validation failures for debugging.
 
@@ -309,26 +303,24 @@ class PostgresValidationWriter:
 
                 results = []
                 for row in rows:
-                    results.append({
-                        'event_id': row[0],
-                        'table_name': row[1],
-                        'status': row[2],
-                        'failed_checks': json.loads(row[3]) if row[3] else [],
-                        'error_messages': json.loads(row[4]) if row[4] else [],
-                        'severity': row[5],
-                        'validation_ts': row[6],
-                        'failure_details': json.loads(row[7]) if row[7] else []
-                    })
+                    results.append(
+                        {
+                            "event_id": row[0],
+                            "table_name": row[1],
+                            "status": row[2],
+                            "failed_checks": json.loads(row[3]) if row[3] else [],
+                            "error_messages": json.loads(row[4]) if row[4] else [],
+                            "severity": row[5],
+                            "validation_ts": row[6],
+                            "failure_details": json.loads(row[7]) if row[7] else [],
+                        }
+                    )
 
                 return results
         except psycopg2.Error as e:
             raise RuntimeError(f"Failed to get recent failures: {e}")
 
-    def check_duplicate(
-        self,
-        event_id: str,
-        lookback_seconds: int = 3600
-    ) -> bool:
+    def check_duplicate(self, event_id: str, lookback_seconds: int = 3600) -> bool:
         """
         Check if an event ID was recently validated (duplicate detection).
 
@@ -369,12 +361,13 @@ class PostgresValidationWriter:
 
 # Factory function for easy creation
 
+
 def create_postgres_writer(
     host: str = "localhost",
     port: int = 5432,
     database: str = "sentinel_dq",
     user: str = "postgres",
-    password: str = "postgres"
+    password: str = "postgres",
 ) -> PostgresValidationWriter:
     """
     Factory function to create PostgresValidationWriter.
@@ -389,13 +382,7 @@ def create_postgres_writer(
     Returns:
         Configured PostgresValidationWriter instance
     """
-    connection_params = {
-        'host': host,
-        'port': port,
-        'database': database,
-        'user': user,
-        'password': password
-    }
+    connection_params = {"host": host, "port": port, "database": database, "user": user, "password": password}
 
     writer = PostgresValidationWriter(connection_params)
     writer.ensure_table_exists()

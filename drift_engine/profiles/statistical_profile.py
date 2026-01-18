@@ -76,9 +76,7 @@ class StatisticalProfile:
                     values.append(str(value))
 
             # Calculate null ratio
-            profile.null_ratios[field] = (
-                null_count / profile.row_count if profile.row_count > 0 else 0
-            )
+            profile.null_ratios[field] = null_count / profile.row_count if profile.row_count > 0 else 0
 
             # Calculate distribution
             if values:
@@ -87,9 +85,7 @@ class StatisticalProfile:
 
                 # Only track if cardinality is reasonable
                 if len(counter) <= max_categories:
-                    distribution = {
-                        value: count / total for value, count in counter.most_common()
-                    }
+                    distribution = {value: count / total for value, count in counter.most_common()}
                     profile.categorical[field] = distribution
                 else:
                     logger.warning(
@@ -114,9 +110,7 @@ class StatisticalProfile:
                         null_count += 1
 
             # Calculate null ratio
-            profile.null_ratios[field] = (
-                null_count / profile.row_count if profile.row_count > 0 else 0
-            )
+            profile.null_ratios[field] = null_count / profile.row_count if profile.row_count > 0 else 0
 
             # Calculate statistics
             if values:

@@ -11,7 +11,7 @@ This module orchestrates:
 
 Usage:
     from data_validation import validate_event, validate_batch
-    
+
     result = validate_event(event_data)
     if result.passed:
         # Insert into processed table
@@ -42,7 +42,7 @@ class DataValidator:
         rules_path: Optional[str] = None,
         db_config: Optional[Dict[str, Any]] = None,
         enable_metrics: bool = True,
-        enable_persistence: bool = True
+        enable_persistence: bool = True,
     ):
         """
         Initialize data validator.
@@ -55,8 +55,7 @@ class DataValidator:
         """
         # Set default rules path
         if not rules_path:
-            rules_path = str(Path(__file__).parent /
-                             'rules' / 'github_events.yaml')
+            rules_path = str(Path(__file__).parent / "rules" / "github_events.yaml")
 
         # Initialize engine
         self.engine = ValidationEngine(rules_path=rules_path)
@@ -70,18 +69,19 @@ class DataValidator:
             # without extra wiring.
             if not db_config:
                 import os
-                db_host = os.getenv('POSTGRES_HOST', 'postgres')
-                db_port = int(os.getenv('POSTGRES_PORT', 5432))
-                db_name = os.getenv('POSTGRES_DB', 'sentineldq')
-                db_user = os.getenv('POSTGRES_USER', 'postgres')
-                db_password = os.getenv('POSTGRES_PASSWORD', 'postgres')
+
+                db_host = os.getenv("POSTGRES_HOST", "postgres")
+                db_port = int(os.getenv("POSTGRES_PORT", 5432))
+                db_name = os.getenv("POSTGRES_DB", "sentineldq")
+                db_user = os.getenv("POSTGRES_USER", "postgres")
+                db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
 
                 db_config = {
-                    'host': db_host,
-                    'port': db_port,
-                    'database': db_name,
-                    'user': db_user,
-                    'password': db_password
+                    "host": db_host,
+                    "port": db_port,
+                    "database": db_name,
+                    "user": db_user,
+                    "password": db_password,
                 }
 
             if db_config:
@@ -99,10 +99,7 @@ class DataValidator:
         self.metrics = get_metrics() if enable_metrics else None
 
     def validate_event(
-        self,
-        event: Dict[str, Any],
-        event_id: Optional[str] = None,
-        persist: bool = True
+        self, event: Dict[str, Any], event_id: Optional[str] = None, persist: bool = True
     ) -> ValidationResult:
         """
         Validate a single event.
@@ -131,11 +128,7 @@ class DataValidator:
 
         return result
 
-    def validate_batch(
-        self,
-        events: List[Dict[str, Any]],
-        persist: bool = True
-    ) -> List[ValidationResult]:
+    def validate_batch(self, events: List[Dict[str, Any]], persist: bool = True) -> List[ValidationResult]:
         """
         Validate a batch of events.
 

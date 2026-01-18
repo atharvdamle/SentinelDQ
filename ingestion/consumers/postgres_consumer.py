@@ -8,10 +8,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -21,33 +18,34 @@ load_dotenv()
 class PostgresConsumer:
     def __init__(self):
         # Kafka configuration
-        self.consumer = Consumer({
-            'bootstrap.servers': os.getenv('KAFKA_BOOTSTRAP_SERVERS'),
-            'group.id': 'github_events_postgres_consumer',
-            'auto.offset.reset': 'earliest'
-        })
-        self.topic = os.getenv('KAFKA_TOPIC')
+        self.consumer = Consumer(
+            {
+                "bootstrap.servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS"),
+                "group.id": "github_events_postgres_consumer",
+                "auto.offset.reset": "earliest",
+            }
+        )
+        self.topic = os.getenv("KAFKA_TOPIC")
         self._running = True
 
         # PostgreSQL configuration
         self.db_config = {
-            'dbname': os.getenv('POSTGRES_DB', 'postgres'),
-            'user': os.getenv('POSTGRES_USER', 'postgres'),
-            'password': os.getenv('POSTGRES_PASSWORD', ''),
-            'host': os.getenv('POSTGRES_HOST', 'localhost'),
-            'port': int(os.getenv('POSTGRES_PORT', '5432'))
+            "dbname": os.getenv("POSTGRES_DB", "postgres"),
+            "user": os.getenv("POSTGRES_USER", "postgres"),
+            "password": os.getenv("POSTGRES_PASSWORD", ""),
+            "host": os.getenv("POSTGRES_HOST", "localhost"),
+            "port": int(os.getenv("POSTGRES_PORT", "5432")),
         }
         # Validator endpoint (env-configurable)
-        self.validator_url = os.getenv(
-            'VALIDATOR_URL', 'http://validator:8000/validate')
-        self.validator_timeout = float(os.getenv('VALIDATOR_TIMEOUT', '0.5'))
+        self.validator_url = os.getenv("VALIDATOR_URL", "http://validator:8000/validate")
+        self.validator_timeout = float(os.getenv("VALIDATOR_TIMEOUT", "0.5"))
 
         # Initialize database
         self.init_db()
 
     def init_db(self):
-        """Initialize the database table."""
-        create_table_query = """
+        """Initialize the database tables."""
+        create_events_table = """
         CREATE TABLE IF NOT EXISTS github_events (
             id SERIAL PRIMARY KEY,
             event_id TEXT UNIQUE,
@@ -69,32 +67,41 @@ class PostgresConsumer:
         );
         """
 
+        # Create processed events table for drift detection
+        create_processed_table = """
+        CREATE TABLE IF NOT EXISTS github_events_processed (
+            id SERIAL PRIMARY KEY,
+            event_id TEXT UNIQUE,
+            event_data JSONB,
+            processed_at TIMESTAMP DEFAULT NOW(),
+            validation_status TEXT
+        );
+        """
+
         with psycopg2.connect(**self.db_config) as conn:
             with conn.cursor() as cur:
-                cur.execute(create_table_query)
-        logger.info("Database table initialized")
+                cur.execute(create_events_table)
+                cur.execute(create_processed_table)
+        logger.info("Database tables initialized")
 
     def store_event(self, event):
         """Store a single event in PostgreSQL."""
         # Validate event with central validator service (fail-closed)
         # Try the primary validator URL, but allow fallbacks to support host-run consumers.
-        fallback_env = os.getenv('VALIDATOR_FALLBACKS', '')
-        fallback_list = [u.strip()
-                         for u in fallback_env.split(',') if u.strip()]
+        fallback_env = os.getenv("VALIDATOR_FALLBACKS", "")
+        fallback_list = [u.strip() for u in fallback_env.split(",") if u.strip()]
         # sensible defaults: localhost and host.docker.internal (useful on Docker for Windows)
-        default_fallbacks = ['http://localhost:8000/validate',
-                             'http://host.docker.internal:8000/validate']
+        default_fallbacks = ["http://localhost:8000/validate", "http://host.docker.internal:8000/validate"]
         try_urls = [self.validator_url] + fallback_list + default_fallbacks
 
         status = None
         last_err = None
         for url in try_urls:
             try:
-                resp = requests.post(
-                    url, json={"event": event}, timeout=self.validator_timeout)
+                resp = requests.post(url, json={"event": event}, timeout=self.validator_timeout)
                 resp.raise_for_status()
                 v = resp.json()
-                status = v.get('status')
+                status = v.get("status")
                 # update validator_url to the working one for future calls
                 self.validator_url = url
                 break
@@ -104,14 +111,12 @@ class PostgresConsumer:
                 continue
 
         if status is None:
-            logger.error(
-                f"Validator call failed (fail-closed). Attempts: {try_urls}. Last error: {last_err}")
+            logger.error(f"Validator call failed (fail-closed). Attempts: {try_urls}. Last error: {last_err}")
             # Fail-closed: do not store the event if validator is unavailable
             return
 
-        if status == 'FAIL':
-            logger.info(
-                f"Event {event.get('id')} failed validation. Skipping insert.")
+        if status == "FAIL":
+            logger.info(f"Event {event.get('id')} failed validation. Skipping insert.")
             return
         insert_query = """
         INSERT INTO github_events (
@@ -125,29 +130,41 @@ class PostgresConsumer:
         ON CONFLICT (event_id) DO NOTHING
         """
 
+        # Also insert into processed table for drift detection
+        insert_processed_query = """
+        INSERT INTO github_events_processed (
+            event_id, event_data, validation_status
+        )
+        VALUES (%s, %s, %s)
+        ON CONFLICT (event_id) DO NOTHING
+        """
+
         try:
             with psycopg2.connect(**self.db_config) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         insert_query,
                         (
-                            event['id'],
-                            event['type'],
-                            event['repo']['id'],
-                            event['repo']['name'],
-                            event['repo']['url'],
-                            event['actor']['id'],
-                            event['actor']['login'],
-                            event['actor']['url'],
-                            event['actor']['avatar_url'],
-                            event['payload'].get('ref'),
-                            event['payload'].get('head'),
-                            event['payload'].get('before'),
-                            event['payload'].get('push_id'),
-                            event['public'],
-                            datetime.strptime(
-                                event['created_at'], '%Y-%m-%dT%H:%M:%SZ')
-                        )
+                            event["id"],
+                            event["type"],
+                            event["repo"]["id"],
+                            event["repo"]["name"],
+                            event["repo"]["url"],
+                            event["actor"]["id"],
+                            event["actor"]["login"],
+                            event["actor"]["url"],
+                            event["actor"]["avatar_url"],
+                            event["payload"].get("ref"),
+                            event["payload"].get("head"),
+                            event["payload"].get("before"),
+                            event["payload"].get("push_id"),
+                            event["public"],
+                            datetime.strptime(event["created_at"], "%Y-%m-%dT%H:%M:%SZ"),
+                        ),
+                    )
+                    # Also insert into processed table
+                    cur.execute(
+                        insert_processed_query, (event["id"], json.dumps(event), status if status else "unknown")
                     )
             logger.info(f"Stored event {event['id']} in PostgreSQL")
         except Exception as e:

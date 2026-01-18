@@ -85,16 +85,8 @@ class DriftResult:
             "current_start": self.current_window.start,
             "current_end": self.current_window.end,
             "metric_name": self.metric_name,
-            "baseline_value": (
-                json.dumps(self.baseline_value)
-                if self.baseline_value is not None
-                else None
-            ),
-            "current_value": (
-                json.dumps(self.current_value)
-                if self.current_value is not None
-                else None
-            ),
+            "baseline_value": (json.dumps(self.baseline_value) if self.baseline_value is not None else None),
+            "current_value": (json.dumps(self.current_value) if self.current_value is not None else None),
             "drift_score": self.drift_score,
             "severity": self.severity.value,
             "detected_at": self.detected_at,
@@ -144,9 +136,7 @@ class DriftSummary:
             self.info_count += 1
 
         drift_type_key = result.drift_type.value
-        self.drifts_by_type[drift_type_key] = (
-            self.drifts_by_type.get(drift_type_key, 0) + 1
-        )
+        self.drifts_by_type[drift_type_key] = self.drifts_by_type.get(drift_type_key, 0) + 1
 
     def get_critical_drifts(self) -> List[DriftResult]:
         """Get only critical severity drifts."""

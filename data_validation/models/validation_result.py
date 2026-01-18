@@ -25,6 +25,7 @@ class ValidationStatus(Enum):
     WARN: Event has non-critical issues but can be processed
     FAIL: Event has critical issues and should not be processed
     """
+
     PASS = "PASS"
     WARN = "WARN"
     FAIL = "FAIL"
@@ -35,9 +36,10 @@ class Severity(Enum):
     Severity level for individual validation failures.
     Maps to ValidationStatus in aggregation.
     """
-    CRITICAL = "FAIL"    # Maps to FAIL status
-    WARNING = "WARN"     # Maps to WARN status
-    INFO = "INFO"        # Informational only
+
+    CRITICAL = "FAIL"  # Maps to FAIL status
+    WARNING = "WARN"  # Maps to WARN status
+    INFO = "INFO"  # Informational only
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class ValidationFailure:
         actual_value: What value was found (optional)
         rule_definition: Reference to the rule that failed (optional)
     """
+
     check_name: str
     field_path: str
     check_type: str
@@ -67,14 +70,14 @@ class ValidationFailure:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            'check_name': self.check_name,
-            'field_path': self.field_path,
-            'check_type': self.check_type,
-            'severity': self.severity.value,
-            'error_message': self.error_message,
-            'expected_value': self._serialize_value(self.expected_value),
-            'actual_value': self._serialize_value(self.actual_value),
-            'rule_definition': self.rule_definition
+            "check_name": self.check_name,
+            "field_path": self.field_path,
+            "check_type": self.check_type,
+            "severity": self.severity.value,
+            "error_message": self.error_message,
+            "expected_value": self._serialize_value(self.expected_value),
+            "actual_value": self._serialize_value(self.actual_value),
+            "rule_definition": self.rule_definition,
         }
 
     @staticmethod
@@ -102,6 +105,7 @@ class FieldValidationResult:
     Validation result for a specific field.
     Useful for detailed reporting and debugging.
     """
+
     field_path: str
     passed: bool
     failures: List[ValidationFailure] = field(default_factory=list)
@@ -137,6 +141,7 @@ class ValidationResult:
         processing_time_ms: How long validation took
         metadata: Additional context (event type, rule version, etc.)
     """
+
     event_id: str
     table_name: str
     status: ValidationStatus
@@ -194,16 +199,16 @@ class ValidationResult:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for database persistence."""
         return {
-            'event_id': self.event_id,
-            'table_name': self.table_name,
-            'status': self.status.value,
-            'failed_checks': json.dumps(self.failed_checks),
-            'error_messages': json.dumps(self.error_messages),
-            'severity': self._get_overall_severity(),
-            'validation_ts': self.validation_timestamp.isoformat(),
-            'processing_time_ms': self.processing_time_ms,
-            'metadata': json.dumps(self.metadata),
-            'failure_details': json.dumps([f.to_dict() for f in self.failures])
+            "event_id": self.event_id,
+            "table_name": self.table_name,
+            "status": self.status.value,
+            "failed_checks": json.dumps(self.failed_checks),
+            "error_messages": json.dumps(self.error_messages),
+            "severity": self._get_overall_severity(),
+            "validation_ts": self.validation_timestamp.isoformat(),
+            "processing_time_ms": self.processing_time_ms,
+            "metadata": json.dumps(self.metadata),
+            "failure_details": json.dumps([f.to_dict() for f in self.failures]),
         }
 
     def _get_overall_severity(self) -> str:
@@ -226,27 +231,22 @@ class ValidationResult:
     def get_summary_stats(self) -> Dict[str, int]:
         """Get summary statistics for reporting."""
         return {
-            'total_checks': len(self.failures) + 1,  # Approximate
-            'critical_failures': len(self.critical_failures),
-            'warning_failures': len(self.warning_failures),
-            'passed': 1 if self.status == ValidationStatus.PASS else 0
+            "total_checks": len(self.failures) + 1,  # Approximate
+            "critical_failures": len(self.critical_failures),
+            "warning_failures": len(self.warning_failures),
+            "passed": 1 if self.status == ValidationStatus.PASS else 0,
         }
 
 
 # Helper functions for creating validation results
 
+
 def create_pass_result(
-    event_id: str,
-    table_name: str = "github_events_raw",
-    metadata: Optional[Dict[str, Any]] = None
+    event_id: str, table_name: str = "github_events_raw", metadata: Optional[Dict[str, Any]] = None
 ) -> ValidationResult:
     """Create a validation result for a fully passing event."""
     return ValidationResult(
-        event_id=event_id,
-        table_name=table_name,
-        status=ValidationStatus.PASS,
-        failures=[],
-        metadata=metadata or {}
+        event_id=event_id, table_name=table_name, status=ValidationStatus.PASS, failures=[], metadata=metadata or {}
     )
 
 
@@ -254,7 +254,7 @@ def create_failure_result(
     event_id: str,
     failures: List[ValidationFailure],
     table_name: str = "github_events_raw",
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> ValidationResult:
     """Create a validation result with failures (status auto-determined)."""
     result = ValidationResult(
@@ -262,7 +262,7 @@ def create_failure_result(
         table_name=table_name,
         status=ValidationStatus.PASS,  # Will be updated
         failures=failures,
-        metadata=metadata or {}
+        metadata=metadata or {},
     )
     result._update_status()
     return result

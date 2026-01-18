@@ -29,9 +29,7 @@ class VolumeProfile:
         return {"total_count": self.total_count, "per_entity": self.per_entity}
 
     @classmethod
-    def from_records(
-        cls, records: List[Dict[str, Any]], entity_fields: List[str], top_n: int = 50
-    ) -> "VolumeProfile":
+    def from_records(cls, records: List[Dict[str, Any]], entity_fields: List[str], top_n: int = 50) -> "VolumeProfile":
         """
         Build volume profile from records.
 

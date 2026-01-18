@@ -40,14 +40,13 @@ class ValueChecker:
     def _compile_patterns(self) -> None:
         """Pre-compile all regex patterns for better performance."""
         for rule in self.rules:
-            if rule.get('check_type') == 'regex':
-                field = rule['field']
-                pattern = rule['pattern']
+            if rule.get("check_type") == "regex":
+                field = rule["field"]
+                pattern = rule["pattern"]
                 try:
                     self._compiled_patterns[field] = re.compile(pattern)
                 except re.error as e:
-                    print(
-                        f"Warning: Invalid regex pattern for field '{field}': {e}")
+                    print(f"Warning: Invalid regex pattern for field '{field}': {e}")
 
     def validate(self, event: Dict[str, Any]) -> List[ValidationFailure]:
         """
@@ -62,11 +61,10 @@ class ValueChecker:
         failures = []
 
         for rule in self.rules:
-            field = rule['field']
-            check_type = rule['check_type']
-            severity_str = rule.get('severity', 'FAIL')
-            error_message = rule.get('error_message',
-                                     f"Value check failed for field '{field}'")
+            field = rule["field"]
+            check_type = rule["check_type"]
+            severity_str = rule.get("severity", "FAIL")
+            error_message = rule.get("error_message", f"Value check failed for field '{field}'")
 
             # Get the value
             value = get_nested_value(event, field)
@@ -79,18 +77,14 @@ class ValueChecker:
             failure = None
             severity = self._parse_severity(severity_str)
 
-            if check_type == 'regex':
-                failure = self._check_regex(
-                    field, value, rule, error_message, severity)
-            elif check_type == 'enum':
-                failure = self._check_enum(
-                    field, value, rule, error_message, severity)
-            elif check_type == 'range':
-                failure = self._check_range(
-                    field, value, rule, error_message, severity)
-            elif check_type == 'length':
-                failure = self._check_length(
-                    field, value, rule, error_message, severity)
+            if check_type == "regex":
+                failure = self._check_regex(field, value, rule, error_message, severity)
+            elif check_type == "enum":
+                failure = self._check_enum(field, value, rule, error_message, severity)
+            elif check_type == "range":
+                failure = self._check_range(field, value, rule, error_message, severity)
+            elif check_type == "length":
+                failure = self._check_length(field, value, rule, error_message, severity)
 
             if failure:
                 failures.append(failure)
@@ -98,12 +92,7 @@ class ValueChecker:
         return failures
 
     def _check_regex(
-        self,
-        field: str,
-        value: Any,
-        rule: Dict[str, Any],
-        error_message: str,
-        severity: Severity
+        self, field: str, value: Any, rule: Dict[str, Any], error_message: str, severity: Severity
     ) -> Optional[ValidationFailure]:
         """Check if value matches regex pattern."""
         pattern = self._compiled_patterns.get(field)
@@ -123,21 +112,16 @@ class ValueChecker:
                 error_message=error_message,
                 expected_value=f"matches pattern: {rule['pattern']}",
                 actual_value=str_value,
-                rule_definition=rule.get('pattern')
+                rule_definition=rule.get("pattern"),
             )
 
         return None
 
     def _check_enum(
-        self,
-        field: str,
-        value: Any,
-        rule: Dict[str, Any],
-        error_message: str,
-        severity: Severity
+        self, field: str, value: Any, rule: Dict[str, Any], error_message: str, severity: Severity
     ) -> Optional[ValidationFailure]:
         """Check if value is in allowed list."""
-        allowed_values = rule.get('allowed_values', [])
+        allowed_values = rule.get("allowed_values", [])
 
         if value not in allowed_values:
             return ValidationFailure(
@@ -148,22 +132,17 @@ class ValueChecker:
                 error_message=error_message,
                 expected_value=f"one of {allowed_values}",
                 actual_value=value,
-                rule_definition=str(allowed_values)
+                rule_definition=str(allowed_values),
             )
 
         return None
 
     def _check_range(
-        self,
-        field: str,
-        value: Any,
-        rule: Dict[str, Any],
-        error_message: str,
-        severity: Severity
+        self, field: str, value: Any, rule: Dict[str, Any], error_message: str, severity: Severity
     ) -> Optional[ValidationFailure]:
         """Check if numeric value is within range."""
-        min_value = rule.get('min_value')
-        max_value = rule.get('max_value')
+        min_value = rule.get("min_value")
+        max_value = rule.get("max_value")
 
         # Value must be numeric
         if not isinstance(value, (int, float)):
@@ -174,7 +153,7 @@ class ValueChecker:
                 severity=severity,
                 error_message=f"Field '{field}' must be numeric for range check",
                 expected_value="numeric value",
-                actual_value=type(value).__name__
+                actual_value=type(value).__name__,
             )
 
         # Check min
@@ -186,7 +165,7 @@ class ValueChecker:
                 severity=severity,
                 error_message=error_message,
                 expected_value=f">= {min_value}",
-                actual_value=value
+                actual_value=value,
             )
 
         # Check max
@@ -198,25 +177,20 @@ class ValueChecker:
                 severity=severity,
                 error_message=error_message,
                 expected_value=f"<= {max_value}",
-                actual_value=value
+                actual_value=value,
             )
 
         return None
 
     def _check_length(
-        self,
-        field: str,
-        value: Any,
-        rule: Dict[str, Any],
-        error_message: str,
-        severity: Severity
+        self, field: str, value: Any, rule: Dict[str, Any], error_message: str, severity: Severity
     ) -> Optional[ValidationFailure]:
         """Check if string/list length is within range."""
-        min_length = rule.get('min_length')
-        max_length = rule.get('max_length')
+        min_length = rule.get("min_length")
+        max_length = rule.get("max_length")
 
         # Value must have length
-        if not hasattr(value, '__len__'):
+        if not hasattr(value, "__len__"):
             return ValidationFailure(
                 check_name=f"value_check.length.{field}",
                 field_path=field,
@@ -224,7 +198,7 @@ class ValueChecker:
                 severity=severity,
                 error_message=f"Field '{field}' must have length for length check",
                 expected_value="string or list",
-                actual_value=type(value).__name__
+                actual_value=type(value).__name__,
             )
 
         length = len(value)
@@ -238,7 +212,7 @@ class ValueChecker:
                 severity=severity,
                 error_message=error_message,
                 expected_value=f"length >= {min_length}",
-                actual_value=f"length = {length}"
+                actual_value=f"length = {length}",
             )
 
         # Check max
@@ -250,7 +224,7 @@ class ValueChecker:
                 severity=severity,
                 error_message=error_message,
                 expected_value=f"length <= {max_length}",
-                actual_value=f"length = {length}"
+                actual_value=f"length = {length}",
             )
 
         return None
@@ -259,16 +233,17 @@ class ValueChecker:
     def _parse_severity(severity_str: str) -> Severity:
         """Convert severity string to Severity enum."""
         severity_map = {
-            'FAIL': Severity.CRITICAL,
-            'CRITICAL': Severity.CRITICAL,
-            'WARN': Severity.WARNING,
-            'WARNING': Severity.WARNING,
-            'INFO': Severity.INFO
+            "FAIL": Severity.CRITICAL,
+            "CRITICAL": Severity.CRITICAL,
+            "WARN": Severity.WARNING,
+            "WARNING": Severity.WARNING,
+            "INFO": Severity.INFO,
         }
         return severity_map.get(severity_str.upper(), Severity.WARNING)
 
 
 # Null and empty value checker
+
 
 class NullChecker:
     """
@@ -302,41 +277,44 @@ class NullChecker:
         failures = []
 
         for rule in self.rules:
-            field = rule['field']
-            allow_null = rule.get('allow_null', True)
-            allow_empty = rule.get('allow_empty', True)
-            severity_str = rule.get('severity', 'FAIL')
-            error_message = rule.get('error_message',
-                                     f"Field '{field}' has invalid null/empty value")
+            field = rule["field"]
+            allow_null = rule.get("allow_null", True)
+            allow_empty = rule.get("allow_empty", True)
+            severity_str = rule.get("severity", "FAIL")
+            error_message = rule.get("error_message", f"Field '{field}' has invalid null/empty value")
 
             value = get_nested_value(event, field)
             severity = self._parse_severity(severity_str)
 
             # Check null
             if not allow_null and value is None:
-                failures.append(ValidationFailure(
-                    check_name=f"null_check.{field}",
-                    field_path=field,
-                    check_type="null",
-                    severity=severity,
-                    error_message=error_message,
-                    expected_value="non-null value",
-                    actual_value="null"
-                ))
+                failures.append(
+                    ValidationFailure(
+                        check_name=f"null_check.{field}",
+                        field_path=field,
+                        check_type="null",
+                        severity=severity,
+                        error_message=error_message,
+                        expected_value="non-null value",
+                        actual_value="null",
+                    )
+                )
                 continue  # Don't check empty if null
 
             # Check empty (only for strings, lists, dicts)
             if not allow_empty and value is not None:
                 if isinstance(value, (str, list, dict)) and len(value) == 0:
-                    failures.append(ValidationFailure(
-                        check_name=f"empty_check.{field}",
-                        field_path=field,
-                        check_type="empty",
-                        severity=severity,
-                        error_message=error_message,
-                        expected_value="non-empty value",
-                        actual_value=f"empty {type(value).__name__}"
-                    ))
+                    failures.append(
+                        ValidationFailure(
+                            check_name=f"empty_check.{field}",
+                            field_path=field,
+                            check_type="empty",
+                            severity=severity,
+                            error_message=error_message,
+                            expected_value="non-empty value",
+                            actual_value=f"empty {type(value).__name__}",
+                        )
+                    )
 
         return failures
 
@@ -344,22 +322,19 @@ class NullChecker:
     def _parse_severity(severity_str: str) -> Severity:
         """Convert severity string to Severity enum."""
         severity_map = {
-            'FAIL': Severity.CRITICAL,
-            'CRITICAL': Severity.CRITICAL,
-            'WARN': Severity.WARNING,
-            'WARNING': Severity.WARNING,
-            'INFO': Severity.INFO
+            "FAIL": Severity.CRITICAL,
+            "CRITICAL": Severity.CRITICAL,
+            "WARN": Severity.WARNING,
+            "WARNING": Severity.WARNING,
+            "INFO": Severity.INFO,
         }
         return severity_map.get(severity_str.upper(), Severity.WARNING)
 
 
 # Utility functions
 
-def validate_regex(
-    value: str,
-    pattern: str,
-    field_name: str = "value"
-) -> Optional[ValidationFailure]:
+
+def validate_regex(value: str, pattern: str, field_name: str = "value") -> Optional[ValidationFailure]:
     """
     Quick regex validation for a single value.
 
@@ -381,7 +356,7 @@ def validate_regex(
                 severity=Severity.CRITICAL,
                 error_message=f"Value does not match pattern",
                 expected_value=f"matches {pattern}",
-                actual_value=value
+                actual_value=value,
             )
     except re.error:
         return ValidationFailure(
@@ -391,17 +366,13 @@ def validate_regex(
             severity=Severity.CRITICAL,
             error_message="Invalid regex pattern",
             expected_value=pattern,
-            actual_value="invalid pattern"
+            actual_value="invalid pattern",
         )
 
     return None
 
 
-def validate_enum(
-    value: Any,
-    allowed_values: List[Any],
-    field_name: str = "value"
-) -> Optional[ValidationFailure]:
+def validate_enum(value: Any, allowed_values: List[Any], field_name: str = "value") -> Optional[ValidationFailure]:
     """
     Quick enum validation for a single value.
 
@@ -421,7 +392,7 @@ def validate_enum(
             severity=Severity.CRITICAL,
             error_message=f"Value not in allowed list",
             expected_value=f"one of {allowed_values}",
-            actual_value=value
+            actual_value=value,
         )
 
     return None

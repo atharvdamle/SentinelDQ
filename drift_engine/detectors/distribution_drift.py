@@ -34,12 +34,8 @@ class DistributionDriftDetector:
         self.psi_warning_threshold = config.get("psi", {}).get("warning", 0.25)
         self.ks_info_pvalue = config.get("ks_test", {}).get("info_pvalue", 0.05)
         self.ks_warning_pvalue = config.get("ks_test", {}).get("warning_pvalue", 0.01)
-        self.null_warning_threshold = config.get("null_ratio_change", {}).get(
-            "warning", 0.1
-        )
-        self.null_critical_threshold = config.get("null_ratio_change", {}).get(
-            "critical", 0.25
-        )
+        self.null_warning_threshold = config.get("null_ratio_change", {}).get("warning", 0.1)
+        self.null_critical_threshold = config.get("null_ratio_change", {}).get("critical", 0.25)
 
     def detect(
         self,
@@ -58,28 +54,18 @@ class DistributionDriftDetector:
 
         # 1. Detect categorical distribution drift (PSI)
         results.extend(
-            self._detect_categorical_drift(
-                baseline_profile, current_profile, baseline_window, current_window
-            )
+            self._detect_categorical_drift(baseline_profile, current_profile, baseline_window, current_window)
         )
 
         # 2. Detect numerical distribution drift (KS test)
-        results.extend(
-            self._detect_numerical_drift(
-                baseline_profile, current_profile, baseline_window, current_window
-            )
-        )
+        results.extend(self._detect_numerical_drift(baseline_profile, current_profile, baseline_window, current_window))
 
         # 3. Detect null ratio changes
         results.extend(
-            self._detect_null_ratio_drift(
-                baseline_profile, current_profile, baseline_window, current_window
-            )
+            self._detect_null_ratio_drift(baseline_profile, current_profile, baseline_window, current_window)
         )
 
-        logger.info(
-            f"Distribution drift detection complete: {len(results)} drifts detected"
-        )
+        logger.info(f"Distribution drift detection complete: {len(results)} drifts detected")
         return results
 
     def _detect_categorical_drift(
@@ -197,9 +183,7 @@ class DistributionDriftDetector:
                 },
             )
             results.append(result)
-            logger.info(
-                f"[{severity.value}] Mean shift in {field}: {mean_shift:.2f} std units"
-            )
+            logger.info(f"[{severity.value}] Mean shift in {field}: {mean_shift:.2f} std units")
 
         return results
 
@@ -261,9 +245,7 @@ class DistributionDriftDetector:
         return results
 
     @staticmethod
-    def _calculate_psi(
-        baseline_dist: Dict[str, float], current_dist: Dict[str, float]
-    ) -> float:
+    def _calculate_psi(baseline_dist: Dict[str, float], current_dist: Dict[str, float]) -> float:
         """
         Calculate Population Stability Index (PSI).
 

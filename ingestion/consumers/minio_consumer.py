@@ -10,8 +10,7 @@ from dotenv import load_dotenv
 
 # Configure logging with a more detailed format
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -24,37 +23,37 @@ class MinIOConsumer:
         logger.info("Initializing MinIO Consumer...")
 
         # Kafka configuration
-        kafka_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS')
-        logger.info(
-            f"Configuring Kafka consumer with bootstrap servers: {kafka_servers}")
-        self.consumer = Consumer({
-            'bootstrap.servers': kafka_servers,
-            'group.id': 'github_events_minio_consumer',
-            'auto.offset.reset': 'earliest'
-        })
-        self.topic = os.getenv('KAFKA_TOPIC')
+        kafka_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
+        logger.info(f"Configuring Kafka consumer with bootstrap servers: {kafka_servers}")
+        self.consumer = Consumer(
+            {
+                "bootstrap.servers": kafka_servers,
+                "group.id": "github_events_minio_consumer",
+                "auto.offset.reset": "earliest",
+            }
+        )
+        self.topic = os.getenv("KAFKA_TOPIC")
         logger.info(f"Will consume from Kafka topic: {self.topic}")
 
         # MinIO configuration
-        self.host = os.getenv('MINIO_HOST', 'localhost')
-        self.port = os.getenv('MINIO_API_PORT', '9000')
-        self.secure = os.getenv('MINIO_SECURE', 'False').lower() == 'true'
-        self.bucket_name = os.getenv('MINIO_BUCKET')
+        self.host = os.getenv("MINIO_HOST", "localhost")
+        self.port = os.getenv("MINIO_API_PORT", "9000")
+        self.secure = os.getenv("MINIO_SECURE", "False").lower() == "true"
+        self.bucket_name = os.getenv("MINIO_BUCKET")
 
-        protocol = 'https' if self.secure else 'http'
+        protocol = "https" if self.secure else "http"
         self.endpoint = f"{protocol}://{self.host}:{self.port}"
-        logger.info(
-            f"Configuring MinIO client with endpoint: {self.endpoint} (secure: {self.secure})")
+        logger.info(f"Configuring MinIO client with endpoint: {self.endpoint} (secure: {self.secure})")
 
         # Test connection before proceeding
         self.s3_client = boto3.client(
-            's3',
+            "s3",
             endpoint_url=self.endpoint,
-            aws_access_key_id=os.getenv('MINIO_ACCESS_KEY'),
-            aws_secret_access_key=os.getenv('MINIO_SECRET_KEY'),
-            config=Config(signature_version='s3v4'),
+            aws_access_key_id=os.getenv("MINIO_ACCESS_KEY"),
+            aws_secret_access_key=os.getenv("MINIO_SECRET_KEY"),
+            config=Config(signature_version="s3v4"),
             verify=False,  # Disable SSL verification for local development
-            region_name='us-east-1'  # MinIO default region
+            region_name="us-east-1",  # MinIO default region
         )
         self.test_minio_connection()
 
@@ -82,8 +81,7 @@ class MinIOConsumer:
             self.s3_client.head_bucket(Bucket=self.bucket_name)
             logger.info(f"Bucket '{self.bucket_name}' already exists")
         except Exception as e:
-            logger.warning(
-                f"Bucket '{self.bucket_name}' not found, creating it now...")
+            logger.warning(f"Bucket '{self.bucket_name}' not found, creating it now...")
             try:
                 self.s3_client.create_bucket(Bucket=self.bucket_name)
                 logger.info(f"Successfully created bucket: {self.bucket_name}")
@@ -94,29 +92,25 @@ class MinIOConsumer:
     def store_event(self, event):
         """Store event JSON in MinIO."""
         timestamp = datetime.utcnow()
-        date_path = timestamp.strftime('%Y-%m-%d')
-        time_path = timestamp.strftime('%H-%M-%S')
+        date_path = timestamp.strftime("%Y-%m-%d")
+        time_path = timestamp.strftime("%H-%M-%S")
         file_uuid = str(uuid.uuid4())
 
         # Extract event metadata for logging
-        event_id = event.get('id', 'unknown')
-        event_type = event.get('type', 'unknown')
-        repo_name = event.get('repo', {}).get('name', 'unknown')
+        event_id = event.get("id", "unknown")
+        event_type = event.get("type", "unknown")
+        repo_name = event.get("repo", {}).get("name", "unknown")
 
         key = f"raw/{date_path}/{time_path}-{file_uuid}.json"
-        logger.info(
-            f"Preparing to store event - ID: {event_id}, Type: {event_type}, Repo: {repo_name}")
+        logger.info(f"Preparing to store event - ID: {event_id}, Type: {event_type}, Repo: {repo_name}")
 
         try:
             # Calculate event size for logging
             event_json = json.dumps(event)
-            size_kb = len(event_json.encode('utf-8')) / 1024
+            size_kb = len(event_json.encode("utf-8")) / 1024
 
             self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=key,
-                Body=event_json.encode('utf-8'),
-                ContentType='application/json'
+                Bucket=self.bucket_name, Key=key, Body=event_json.encode("utf-8"), ContentType="application/json"
             )
             logger.info(
                 f"Successfully stored event in MinIO:\n"
@@ -152,8 +146,7 @@ class MinIOConsumer:
                     continue
                 if msg.error():
                     if msg.error().code() == KafkaError._PARTITION_EOF:
-                        logger.debug(
-                            f"Reached end of partition for topic: {self.topic}")
+                        logger.debug(f"Reached end of partition for topic: {self.topic}")
                         continue
                     else:
                         logger.error(f"Kafka consumer error: {msg.error()}")
@@ -162,8 +155,7 @@ class MinIOConsumer:
                 # Log processing metrics every 100 messages
                 messages_processed += 1
                 if messages_processed % 100 == 0:
-                    elapsed_time = (datetime.utcnow() -
-                                    start_time).total_seconds()
+                    elapsed_time = (datetime.utcnow() - start_time).total_seconds()
                     avg_msg_per_sec = messages_processed / elapsed_time if elapsed_time > 0 else 0
                     logger.info(
                         f"Processing Statistics:\n"

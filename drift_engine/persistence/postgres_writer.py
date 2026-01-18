@@ -38,9 +38,7 @@ class DriftPostgresWriter:
                 user=self.user,
                 password=self.password,
             )
-            logger.info(
-                f"Connected to PostgreSQL at {self.host}:{self.port}/{self.database}"
-            )
+            logger.info(f"Connected to PostgreSQL at {self.host}:{self.port}/{self.database}")
         except Exception as e:
             logger.error(f"Failed to connect to PostgreSQL: {e}")
             raise
@@ -124,9 +122,7 @@ class DriftPostgresWriter:
             with self._connection.cursor() as cursor:
                 execute_batch(cursor, insert_sql, data, page_size=batch_size)
                 self._connection.commit()
-                logger.info(
-                    f"Successfully wrote {len(results)} drift results to database"
-                )
+                logger.info(f"Successfully wrote {len(results)} drift results to database")
 
         except Exception as e:
             logger.error(f"Failed to write drift results: {e}")
@@ -203,9 +199,7 @@ class DriftPostgresWriter:
                     result = dict(zip(columns, row))
                     results.append(result)
 
-                logger.info(
-                    f"Retrieved {len(results)} critical drifts from last {hours} hours"
-                )
+                logger.info(f"Retrieved {len(results)} critical drifts from last {hours} hours")
                 return results
 
         except Exception as e:
