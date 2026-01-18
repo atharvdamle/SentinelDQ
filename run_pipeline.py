@@ -12,7 +12,8 @@ from colorama import Fore, Style
 colorama.init()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("supervisor")
 
 
@@ -21,8 +22,6 @@ class ComponentSupervisor:
         self.processes: Dict[str, Process] = {}
         self.should_run = True
         self.log_tasks: List[asyncio.Task] = []
-
-        # Component colors for logs
         self.colors = {
             "github_producer": Fore.GREEN,
             "postgres_consumer": Fore.BLUE,
@@ -33,22 +32,19 @@ class ComponentSupervisor:
     async def start_component(self, name: str, module_path: str):
         """Start a component and capture its output."""
         try:
-            # Create the process
             process = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", module_path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             self.processes[name] = process
-
-            # Create tasks for reading stdout and stderr
             self.log_tasks.extend(
                 [
-                    asyncio.create_task(self.log_output(name, process.stdout, "INFO")),
-                    asyncio.create_task(self.log_output(name, process.stderr, "ERROR")),
+                    asyncio.create_task(self.log_output(
+                        name, process.stdout, "INFO")),
+                    asyncio.create_task(self.log_output(
+                        name, process.stderr, "ERROR")),
                 ]
             )
-
             logger.info(f"Started {name} (PID: {process.pid})")
-
         except Exception as e:
             logger.error(f"Failed to start {name}: {e}")
 
@@ -64,8 +60,8 @@ class ComponentSupervisor:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 message = line.decode().strip()
 
-                # Format: [TIMESTAMP] COMPONENT_NAME: MESSAGE
-                print(f"{Fore.WHITE}[{timestamp}] {color}{name}: {message}{Style.RESET_ALL}")
+                print(
+                    f"{Fore.WHITE}[{timestamp}] {color}{name}: {message}{Style.RESET_ALL}")
 
             except Exception as e:
                 logger.error(f"Error reading {name} output: {e}")
@@ -90,7 +86,6 @@ class ComponentSupervisor:
         print(f"\n{Fore.YELLOW}Shutting down all components...{Style.RESET_ALL}")
         self.should_run = False
 
-        # Terminate all processes
         for name, process in self.processes.items():
             try:
                 process.terminate()
@@ -99,7 +94,6 @@ class ComponentSupervisor:
             except Exception as e:
                 print(f"{Fore.RED}Error stopping {name}: {e}{Style.RESET_ALL}")
 
-        # Cancel all log tasks
         for task in self.log_tasks:
             task.cancel()
 

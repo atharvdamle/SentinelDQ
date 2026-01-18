@@ -4,27 +4,18 @@ services:
     ports:
       - "9092:9092"
     environment:
-      # Node and Process Configuration
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
-      
-      # Listeners Configuration
       KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:19092,CONTROLLER://:29093'
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:19092'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT_INTERNAL'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      
-      # Storage Configuration
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      
-      # Feature Flags
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1      
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      
-      # KRaft Configuration
       CLUSTER_ID: 'XuFx1gYwT5GJugM1-sr6QQ'
     volumes:
       - kafka_data:/var/lib/kafka/data
@@ -47,8 +38,8 @@ services:
   minio:
     image: minio/minio:latest
     ports:
-      - "9000:9000"      # API port
-      - "9001:9001"      # Console port
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
@@ -81,8 +72,6 @@ services:
       MINIO_ADDRESS: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-    # Run the validator as an HTTP service (uvicorn). The service will
-    # wait for dependencies and then start the FastAPI app.
     command: ["python", "scripts/wait_and_run.py", "postgres:${POSTGRES_PORT}", "minio:9000", "--", "uvicorn", "data_validation.api:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
@@ -164,7 +153,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    # Run drift detection service with scheduling
     command: ["python", "scripts/wait_and_run.py", "postgres:${POSTGRES_PORT}", "--", "python", "-m", "drift_engine.drift_service"]
     networks:
       - app-network
