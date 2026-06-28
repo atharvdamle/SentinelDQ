@@ -1,9 +1,5 @@
-"""
-Persistence Package
+"""Validation persistence package exports."""
 
-Handles storage of validation results.
-"""
+from persistence.repositories import ValidationRepository
 
-from .postgres_writer import PostgresValidationWriter, create_postgres_writer
-
-__all__ = ["PostgresValidationWriter", "create_postgres_writer"]
+__all__ = ["ValidationRepository"]

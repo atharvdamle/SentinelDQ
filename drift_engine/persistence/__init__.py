@@ -1,7 +1,6 @@
-"""
-Drift persistence package.
-"""
+"""Drift persistence package."""
 
-from .postgres_writer import DriftPostgresWriter
+from persistence.postgres_writer import DriftPostgresWriter
+from persistence.repositories import DriftRepository
 
-__all__ = ["DriftPostgresWriter"]
+__all__ = ["DriftRepository", "DriftPostgresWriter"]

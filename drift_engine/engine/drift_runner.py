@@ -2,7 +2,6 @@
 Main drift detection engine - orchestrates profiling and drift detection.
 """
 
-import psycopg2
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
@@ -16,7 +15,7 @@ from drift_engine.detectors import (
     DistributionDriftDetector,
     VolumeDriftDetector,
 )
-from drift_engine.persistence import DriftPostgresWriter
+from persistence.repositories import DriftRepository
 
 logger = logging.getLogger(__name__)
 
@@ -228,23 +227,18 @@ class DriftRunner:
         """
 
         try:
-            conn = psycopg2.connect(
-                host=self.db_host,
-                port=self.db_port,
-                database=self.db_name,
-                user=self.db_user,
-                password=self.db_password,
+            persistence = PersistenceService(
+                {
+                    "host": self.db_host,
+                    "port": self.db_port,
+                    "database": self.db_name,
+                    "user": self.db_user,
+                    "password": self.db_password,
+                }
             )
-
-            with conn.cursor() as cursor:
-                cursor.execute(query, (window.start, window.end))
-
-                records = []
-                for row in cursor.fetchall():
-                    event_data = row[0]  # JSONB column
-                    records.append(event_data)
-
-            conn.close()
+            with persistence:
+                rows = persistence.fetch_all(query, (window.start, window.end))
+                records = [row[0] for row in rows]
             return records
 
         except Exception as e:
@@ -282,8 +276,19 @@ class DriftRunner:
         batch_size = self.config["database"]["batch_insert_size"]
 
         try:
-            with DriftPostgresWriter() as writer:
-                writer.write_results(results, batch_size=batch_size)
+            repository = DriftRepository(
+                {
+                    "host": self.db_host,
+                    "port": self.db_port,
+                    "database": self.db_name,
+                    "user": self.db_user,
+                    "password": self.db_password,
+                }
+            )
+            with repository:
+                repository.ensure_table_exists()
+                for result in results:
+                    repository.save(result)
             logger.info(f"Persisted {len(results)} drift results to database")
         except Exception as e:
             logger.error(f"Failed to persist drift results: {e}")

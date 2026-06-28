@@ -19,7 +19,7 @@ Usage:
 """
 
 from data_validation.metrics import get_metrics
-from data_validation.persistence import PostgresValidationWriter
+from persistence.repositories import ValidationRepository
 from data_validation.models import ValidationResult, ValidationStatus
 from data_validation.engine import ValidationEngine
 import sys
@@ -40,7 +40,7 @@ class DataValidator:
     def __init__(
         self,
         rules_path: Optional[str] = None,
-        db_config: Optional[Dict[str, Any]] = None,
+        persistence_config: Optional[Dict[str, Any]] = None,
         enable_metrics: bool = True,
         enable_persistence: bool = True,
     ):
@@ -49,7 +49,7 @@ class DataValidator:
 
         Args:
             rules_path: Path to validation rules YAML
-            db_config: Database configuration for persistence
+            persistence_config: Database configuration for persistence
             enable_metrics: Whether to collect metrics
             enable_persistence: Whether to persist results to DB
         """
@@ -62,12 +62,12 @@ class DataValidator:
 
         # Initialize persistence
         self.enable_persistence = enable_persistence
-        self.db_writer = None
+        self.repository = None
         if enable_persistence:
-            # If caller didn't supply a db_config, try to build one from
+            # If caller didn't supply persistence_config, try to build one from
             # environment variables so the validator can run in Docker
             # without extra wiring.
-            if not db_config:
+            if not persistence_config:
                 import os
 
                 db_host = os.getenv("POSTGRES_HOST", "postgres")
@@ -76,7 +76,7 @@ class DataValidator:
                 db_user = os.getenv("POSTGRES_USER", "postgres")
                 db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
 
-                db_config = {
+                persistence_config = {
                     "host": db_host,
                     "port": db_port,
                     "database": db_name,
@@ -84,15 +84,15 @@ class DataValidator:
                     "password": db_password,
                 }
 
-            if db_config:
-                self.db_writer = PostgresValidationWriter(db_config)
+            if persistence_config:
+                self.repository = ValidationRepository(persistence_config)
                 try:
-                    self.db_writer.connect()
-                    self.db_writer.ensure_table_exists()
+                    self.repository.connect()
+                    self.repository.ensure_table_exists()
                 except Exception as e:
                     # Warn but don't crash the validator; higher layers may
                     # choose to proceed without persistence.
-                    print(f"Warning: could not initialize DB writer: {e}")
+                    print(f"Warning: could not initialize persistence repository: {e}")
 
         # Initialize metrics
         self.enable_metrics = enable_metrics
@@ -120,9 +120,9 @@ class DataValidator:
             self.metrics.record_validation(result)
 
         # Persist to database
-        if persist and self.enable_persistence and self.db_writer:
+        if persist and self.enable_persistence and self.repository:
             try:
-                self.db_writer.write_result(result)
+                self.repository.save(result)
             except Exception as e:
                 print(f"Warning: Failed to persist validation result: {e}")
 
@@ -146,9 +146,10 @@ class DataValidator:
             results.append(result)
 
         # Batch persist for efficiency
-        if persist and self.enable_persistence and self.db_writer:
+        if persist and self.enable_persistence and self.repository:
             try:
-                self.db_writer.write_batch(results)
+                for item in results:
+                    self.repository.save(item)
             except Exception as e:
                 print(f"Warning: Failed to persist validation batch: {e}")
 
@@ -168,8 +169,8 @@ class DataValidator:
 
     def close(self):
         """Clean up resources."""
-        if self.db_writer:
-            self.db_writer.disconnect()
+        if self.repository:
+            self.repository.disconnect()
 
 
 # Convenience functions for direct usage
