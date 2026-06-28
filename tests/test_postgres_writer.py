@@ -50,13 +50,19 @@ def test_validation_and_drift_repositories_share_core_connector(monkeypatch):
     assert hasattr(validation_persistence, "ValidationRepository")
     assert not hasattr(validation_persistence, "PostgresValidationWriter")
 
-    drift_writer = DriftPostgresWriter({"host": "localhost", "database": "db", "user": "u", "password": "p"})
+    drift_writer = DriftPostgresWriter(
+        {"host": "localhost", "database": "db", "user": "u", "password": "p"}
+    )
     drift_writer.connect()
 
     assert isinstance(drift_writer, PersistenceService)
 
-    validation_repo = ValidationRepository({"host": "localhost", "database": "db", "user": "u", "password": "p"})
-    drift_repo = DriftRepository({"host": "localhost", "database": "db", "user": "u", "password": "p"})
+    validation_repo = ValidationRepository(
+        {"host": "localhost", "database": "db", "user": "u", "password": "p"}
+    )
+    drift_repo = DriftRepository(
+        {"host": "localhost", "database": "db", "user": "u", "password": "p"}
+    )
 
     assert isinstance(validation_repo, PersistenceService)
     assert isinstance(drift_repo, PersistenceService)

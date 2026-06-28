@@ -135,7 +135,9 @@ class DriftPostgresWriter(PersistenceService):
                 cursor.execute(query, (hours,))
                 columns = [desc[0] for desc in cursor.description]
                 results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            logger.info("Retrieved %s critical drifts from last %s hours", len(results), hours)
+            logger.info(
+                "Retrieved %s critical drifts from last %s hours", len(results), hours
+            )
             return results
         except psycopg2.Error as exc:
             logger.error("Failed to retrieve critical drifts: %s", exc)

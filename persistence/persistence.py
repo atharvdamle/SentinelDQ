@@ -19,7 +19,9 @@ class PersistenceService:
         self.connection = None
 
     @staticmethod
-    def _build_connection_params(connection_params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _build_connection_params(
+        connection_params: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
         params = dict(connection_params or {})
         if not params:
             params = {

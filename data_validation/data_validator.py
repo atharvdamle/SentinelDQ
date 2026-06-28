@@ -99,7 +99,10 @@ class DataValidator:
         self.metrics = get_metrics() if enable_metrics else None
 
     def validate_event(
-        self, event: Dict[str, Any], event_id: Optional[str] = None, persist: bool = True
+        self,
+        event: Dict[str, Any],
+        event_id: Optional[str] = None,
+        persist: bool = True,
     ) -> ValidationResult:
         """
         Validate a single event.
@@ -128,7 +131,9 @@ class DataValidator:
 
         return result
 
-    def validate_batch(self, events: List[Dict[str, Any]], persist: bool = True) -> List[ValidationResult]:
+    def validate_batch(
+        self, events: List[Dict[str, Any]], persist: bool = True
+    ) -> List[ValidationResult]:
         """
         Validate a batch of events.
 
