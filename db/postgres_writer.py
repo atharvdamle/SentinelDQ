@@ -9,7 +9,7 @@ import psycopg2
 from psycopg2.extras import execute_batch
 
 from drift_engine.models import DriftResult
-from persistence.persistence import PersistenceService
+from db.persistence import PersistenceService
 
 logger = logging.getLogger(__name__)
 

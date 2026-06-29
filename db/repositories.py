@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from drift_engine.models import DriftResult
 from data_validation.models.validation_result import ValidationResult
-from persistence.persistence import PersistenceService
+from db.persistence import PersistenceService
 
 
 class ValidationRepository(PersistenceService):

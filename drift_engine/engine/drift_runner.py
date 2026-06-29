@@ -15,7 +15,7 @@ from drift_engine.detectors import (
     DistributionDriftDetector,
     VolumeDriftDetector,
 )
-from persistence.repositories import DriftRepository
+from db.repositories import DriftRepository
 
 logger = logging.getLogger(__name__)
 

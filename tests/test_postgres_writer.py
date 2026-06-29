@@ -1,7 +1,6 @@
-import data_validation.persistence as validation_persistence
-from drift_engine.persistence import DriftPostgresWriter
-from persistence.persistence import PersistenceService
-from persistence.repositories import DriftRepository, ValidationRepository
+from db import DriftPostgresWriter
+from db import PersistenceService
+from db.repositories import DriftRepository, ValidationRepository
 
 
 class FakeCursor:
@@ -45,10 +44,11 @@ def test_validation_and_drift_repositories_share_core_connector(monkeypatch):
     def fake_connect(**kwargs):
         return fake_connection
 
-    monkeypatch.setattr("persistence.postgres_writer.psycopg2.connect", fake_connect)
+    monkeypatch.setattr("db.postgres_writer.psycopg2.connect", fake_connect)
 
-    assert hasattr(validation_persistence, "ValidationRepository")
-    assert not hasattr(validation_persistence, "PostgresValidationWriter")
+    assert hasattr(
+        __import__("db", fromlist=["ValidationRepository"]), "ValidationRepository"
+    )
 
     drift_writer = DriftPostgresWriter(
         {"host": "localhost", "database": "db", "user": "u", "password": "p"}

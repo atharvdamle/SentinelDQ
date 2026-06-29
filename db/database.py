@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from persistence.persistence import PersistenceService
+from db.persistence import PersistenceService
 
 DatabaseService = PersistenceService
 

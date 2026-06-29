@@ -19,7 +19,7 @@ Usage:
 """
 
 from data_validation.metrics import get_metrics
-from persistence.repositories import ValidationRepository
+from db.repositories import ValidationRepository
 from data_validation.models import ValidationResult, ValidationStatus
 from data_validation.engine import ValidationEngine
 import sys
