@@ -1,11 +1,13 @@
 import os
 import json
 import logging
-import psycopg2
 import requests
 from confluent_kafka import Consumer, KafkaError
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
+
+import db
+from db import EventRepository
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -28,14 +30,15 @@ class PostgresConsumer:
         self.topic = os.getenv("KAFKA_TOPIC")
         self._running = True
 
-        # PostgreSQL configuration
-        self.db_config = {
-            "dbname": os.getenv("POSTGRES_DB", "postgres"),
-            "user": os.getenv("POSTGRES_USER", "postgres"),
-            "password": os.getenv("POSTGRES_PASSWORD", ""),
-            "host": os.getenv("POSTGRES_HOST", "localhost"),
-            "port": int(os.getenv("POSTGRES_PORT", "5432")),
-        }
+        self.repository = EventRepository()
+        # Events are written in batches rather than one connection and one
+        # INSERT per message. The flush interval bounds how long a validated
+        # event can sit unwritten.
+        self.batch_size = int(os.getenv("INGEST_BATCH_SIZE", "100"))
+        self.flush_interval_seconds = float(os.getenv("INGEST_FLUSH_INTERVAL", "5"))
+        self._pending = []
+        self._last_flush = datetime.now(timezone.utc)
+
         # Validator endpoint (env-configurable)
         self.validator_url = os.getenv("VALIDATOR_URL", "http://validator:8000/validate")
         self.validator_timeout = float(os.getenv("VALIDATOR_TIMEOUT", "0.5"))
@@ -44,45 +47,8 @@ class PostgresConsumer:
         self.init_db()
 
     def init_db(self):
-        """Initialize the database tables."""
-        create_events_table = """
-        CREATE TABLE IF NOT EXISTS github_events (
-            id SERIAL PRIMARY KEY,
-            event_id TEXT UNIQUE,
-            event_type TEXT,
-            repo_id BIGINT,
-            repo_name TEXT,
-            repo_url TEXT,
-            actor_id BIGINT,
-            actor_login TEXT,
-            actor_url TEXT,
-            actor_avatar TEXT,
-            payload_ref TEXT,
-            payload_head TEXT,
-            payload_before TEXT,
-            push_id BIGINT,
-            public BOOLEAN,
-            created_at TIMESTAMP,
-            ingestion_ts TIMESTAMP DEFAULT NOW()
-        );
-        """
-
-        # Create processed events table for drift detection
-        create_processed_table = """
-        CREATE TABLE IF NOT EXISTS github_events_processed (
-            id SERIAL PRIMARY KEY,
-            event_id TEXT UNIQUE,
-            event_data JSONB,
-            processed_at TIMESTAMP DEFAULT NOW(),
-            validation_status TEXT
-        );
-        """
-
-        with psycopg2.connect(**self.db_config) as conn:
-            with conn.cursor() as cur:
-                cur.execute(create_events_table)
-                cur.execute(create_processed_table)
-        logger.info("Database tables initialized")
+        """Create any missing tables and indexes. The DDL lives in db/schema.py."""
+        db.init_schema()
 
     def store_event(self, event):
         """Store a single event in PostgreSQL."""
@@ -118,58 +84,53 @@ class PostgresConsumer:
         if status == "FAIL":
             logger.info(f"Event {event.get('id')} failed validation. Skipping insert.")
             return
-        insert_query = """
-        INSERT INTO github_events (
-            event_id, event_type, 
-            repo_id, repo_name, repo_url,
-            actor_id, actor_login, actor_url, actor_avatar,
-            payload_ref, payload_head, payload_before, push_id,
-            public, created_at
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (event_id) DO NOTHING
-        """
 
-        # Also insert into processed table for drift detection
-        insert_processed_query = """
-        INSERT INTO github_events_processed (
-            event_id, event_data, validation_status
+        self._pending.append(
+            {
+                "event_id": event["id"],
+                "raw": event,
+                "validation_status": status,
+                "columns": {
+                    "event_id": event["id"],
+                    "event_type": event["type"],
+                    "repo_id": event["repo"]["id"],
+                    "repo_name": event["repo"]["name"],
+                    "repo_url": event["repo"]["url"],
+                    "actor_id": event["actor"]["id"],
+                    "actor_login": event["actor"]["login"],
+                    "actor_url": event["actor"]["url"],
+                    "actor_avatar": event["actor"]["avatar_url"],
+                    "payload_ref": event["payload"].get("ref"),
+                    "payload_head": event["payload"].get("head"),
+                    "payload_before": event["payload"].get("before"),
+                    "push_id": event["payload"].get("push_id"),
+                    "public": event["public"],
+                    "created_at": _parse_created_at(event["created_at"]),
+                },
+            }
         )
-        VALUES (%s, %s, %s)
-        ON CONFLICT (event_id) DO NOTHING
-        """
+
+        if len(self._pending) >= self.batch_size:
+            self.flush()
+
+    def flush(self):
+        """Write pending events. Clears the buffer only on a successful write."""
+        self._last_flush = datetime.now(timezone.utc)
+        if not self._pending:
+            return
 
         try:
-            with psycopg2.connect(**self.db_config) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        insert_query,
-                        (
-                            event["id"],
-                            event["type"],
-                            event["repo"]["id"],
-                            event["repo"]["name"],
-                            event["repo"]["url"],
-                            event["actor"]["id"],
-                            event["actor"]["login"],
-                            event["actor"]["url"],
-                            event["actor"]["avatar_url"],
-                            event["payload"].get("ref"),
-                            event["payload"].get("head"),
-                            event["payload"].get("before"),
-                            event["payload"].get("push_id"),
-                            event["public"],
-                            datetime.strptime(event["created_at"], "%Y-%m-%dT%H:%M:%SZ"),
-                        ),
-                    )
-                    # Also insert into processed table
-                    cur.execute(
-                        insert_processed_query, (event["id"], json.dumps(event), status if status else "unknown")
-                    )
-            logger.info(f"Stored event {event['id']} in PostgreSQL")
+            self.repository.save_batch(self._pending)
         except Exception as e:
-            logger.error(f"Error storing event in PostgreSQL: {e}")
+            logger.error(f"Error storing {len(self._pending)} events in PostgreSQL: {e}")
             raise
+        finally:
+            # The batch is dropped either way: on success it is written, and on
+            # failure retrying it would stall the consumer on a poison event.
+            # Kafka offsets auto-commit on a timer regardless of what happened
+            # here, so a failed batch is lost -- see IMPROVEMENTS.md F9, which
+            # covers manual offset commits and a dead-letter path.
+            self._pending = []
 
     def stop(self):
         """Gracefully stop consuming."""
@@ -185,6 +146,7 @@ class PostgresConsumer:
                 msg = self.consumer.poll(1.0)
 
                 if msg is None:
+                    self._flush_if_due()
                     continue
                 if msg.error():
                     if msg.error().code() == KafkaError._PARTITION_EOF:
@@ -200,11 +162,44 @@ class PostgresConsumer:
                     logger.error(f"Error processing message: {e}")
                     continue
 
+                self._flush_if_due()
+
         except KeyboardInterrupt:
             logger.info("Received shutdown signal")
         finally:
+            try:
+                self.flush()
+            except Exception as e:
+                logger.error(f"Final flush failed: {e}")
             self.consumer.close()
+            db.close_pool()
             logger.info("Consumer closed")
+
+    def _flush_if_due(self):
+        """Flush once the buffer has been waiting longer than the interval."""
+        age = (datetime.now(timezone.utc) - self._last_flush).total_seconds()
+        if self._pending and age >= self.flush_interval_seconds:
+            try:
+                self.flush()
+            except Exception:
+                # Already logged in flush(); keep consuming rather than dying
+                # on one bad batch.
+                pass
+
+
+def _parse_created_at(value):
+    """Parse GitHub's event timestamp as UTC.
+
+    GitHub sends whole-second Zulu time, but fromisoformat also accepts
+    fractional seconds and explicit offsets -- a fixed "%Y-%m-%dT%H:%M:%SZ"
+    raised ValueError on anything else, which dropped the event. test_e2e.py
+    has always produced microsecond timestamps for exactly this reason.
+
+    Returning an aware datetime keeps the value correct in the TIMESTAMPTZ
+    column regardless of the database's own timezone.
+    """
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def main():

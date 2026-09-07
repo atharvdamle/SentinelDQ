@@ -8,6 +8,14 @@ from ingestion.consumers.minio_consumer import MinIOConsumer
 
 class TestMinIOConsumer(unittest.TestCase):
     def setUp(self):
+        # MinIOConsumer builds a Kafka client in __init__. Patch the name the
+        # module bound at import -- patching `confluent_kafka.Consumer` misses,
+        # so a real client is constructed and its background thread keeps the
+        # test process alive forever.
+        self.kafka_patcher = patch("ingestion.consumers.minio_consumer.Consumer")
+        self.mock_kafka_consumer_class = self.kafka_patcher.start()
+        self.addCleanup(self.kafka_patcher.stop)
+
         self.mock_env = {
             "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
             "KAFKA_TOPIC": "github_events",
@@ -143,11 +151,10 @@ class TestMinIOConsumer(unittest.TestCase):
                 consumer.store_event(self.mock_event)
 
     @patch("boto3.client")
-    @patch("confluent_kafka.Consumer")
-    def test_start_consuming(self, mock_consumer, mock_boto3_client):
+    def test_start_consuming(self, mock_boto3_client):
         # Mock Kafka consumer
         mock_kafka_consumer = MagicMock()
-        mock_consumer.return_value = mock_kafka_consumer
+        self.mock_kafka_consumer_class.return_value = mock_kafka_consumer
 
         # Mock S3 client
         mock_s3 = MagicMock()

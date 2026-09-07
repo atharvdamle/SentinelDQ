@@ -21,10 +21,8 @@ Quick Start:
         pass
 """
 
-from .data_validator import DataValidator, validate_event, validate_batch, get_validator
-from .models import ValidationResult, ValidationFailure, ValidationStatus, Severity
-from .engine import ValidationEngine
-from .metrics import get_metrics
+from importlib import import_module
+from typing import Any
 
 __version__ = "1.0.0"
 
@@ -40,3 +38,24 @@ __all__ = [
     "ValidationEngine",
     "get_metrics",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in {"DataValidator", "validate_event", "validate_batch", "get_validator"}:
+        module = import_module(".data_validator", __name__)
+        return getattr(module, name)
+    if name in {
+        "ValidationResult",
+        "ValidationFailure",
+        "ValidationStatus",
+        "Severity",
+    }:
+        module = import_module(".models", __name__)
+        return getattr(module, name)
+    if name == "ValidationEngine":
+        module = import_module(".engine", __name__)
+        return getattr(module, name)
+    if name == "get_metrics":
+        module = import_module(".metrics", __name__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

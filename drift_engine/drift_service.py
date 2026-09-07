@@ -7,6 +7,7 @@ Runs drift detection periodically based on the configured schedule.
 
 from drift_engine.reports import ReportGenerator
 from drift_engine.engine import DriftRunner
+import db
 import logging
 import time
 import schedule
@@ -63,6 +64,10 @@ def run_drift_detection():
 def main():
     """Main service entry point."""
     logger.info("Drift Detection Service starting...")
+
+    # The drift engine only reads, but it is a separate process and may start
+    # before the consumer has created anything.
+    db.init_schema()
 
     # Load schedule configuration
     runner = DriftRunner()

@@ -314,7 +314,7 @@ duplicate_check:
   enabled: true
   key_field: "id"
   lookback_window_seconds: 3600  # Check events from last hour
-  check_table: "github_events_raw"  # Table to query for duplicates
+  check_table: "github_events"  # Table to query for duplicates
   severity: "FAIL"
   error_message: "Duplicate event ID detected within lookback window"
 

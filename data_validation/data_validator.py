@@ -19,15 +19,19 @@ Usage:
 """
 
 from data_validation.metrics import get_metrics
-from data_validation.persistence import PostgresValidationWriter
 from data_validation.models import ValidationResult, ValidationStatus
 from data_validation.engine import ValidationEngine
+import db
+from db import DatabaseConfig, ValidationRepository
+import logging
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+logger = logging.getLogger(__name__)
 
 
 class DataValidator:
@@ -40,7 +44,7 @@ class DataValidator:
     def __init__(
         self,
         rules_path: Optional[str] = None,
-        db_config: Optional[Dict[str, Any]] = None,
+        persistence_config: Optional[Dict[str, Any]] = None,
         enable_metrics: bool = True,
         enable_persistence: bool = True,
     ):
@@ -49,7 +53,7 @@ class DataValidator:
 
         Args:
             rules_path: Path to validation rules YAML
-            db_config: Database configuration for persistence
+            persistence_config: Database configuration for persistence
             enable_metrics: Whether to collect metrics
             enable_persistence: Whether to persist results to DB
         """
@@ -62,44 +66,31 @@ class DataValidator:
 
         # Initialize persistence
         self.enable_persistence = enable_persistence
-        self.db_writer = None
+        self.repository = None
         if enable_persistence:
-            # If caller didn't supply a db_config, try to build one from
-            # environment variables so the validator can run in Docker
-            # without extra wiring.
-            if not db_config:
-                import os
-
-                db_host = os.getenv("POSTGRES_HOST", "postgres")
-                db_port = int(os.getenv("POSTGRES_PORT", 5432))
-                db_name = os.getenv("POSTGRES_DB", "sentineldq")
-                db_user = os.getenv("POSTGRES_USER", "postgres")
-                db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-
-                db_config = {
-                    "host": db_host,
-                    "port": db_port,
-                    "database": db_name,
-                    "user": db_user,
-                    "password": db_password,
-                }
-
-            if db_config:
-                self.db_writer = PostgresValidationWriter(db_config)
-                try:
-                    self.db_writer.connect()
-                    self.db_writer.ensure_table_exists()
-                except Exception as e:
-                    # Warn but don't crash the validator; higher layers may
-                    # choose to proceed without persistence.
-                    print(f"Warning: could not initialize DB writer: {e}")
+            # Connection settings come from db.config; persistence_config is
+            # only for callers that want to override them.
+            try:
+                db.configure(DatabaseConfig.from_env(
+                    application_name="sentineldq-validator",
+                    overrides=persistence_config,
+                ))
+                db.init_schema()
+                self.repository = ValidationRepository()
+            except Exception as e:
+                # Warn but don't crash the validator; higher layers may
+                # choose to proceed without persistence.
+                logger.warning("Could not initialize persistence: %s", e)
 
         # Initialize metrics
         self.enable_metrics = enable_metrics
         self.metrics = get_metrics() if enable_metrics else None
 
     def validate_event(
-        self, event: Dict[str, Any], event_id: Optional[str] = None, persist: bool = True
+        self,
+        event: Dict[str, Any],
+        event_id: Optional[str] = None,
+        persist: bool = True,
     ) -> ValidationResult:
         """
         Validate a single event.
@@ -120,15 +111,17 @@ class DataValidator:
             self.metrics.record_validation(result)
 
         # Persist to database
-        if persist and self.enable_persistence and self.db_writer:
+        if persist and self.enable_persistence and self.repository:
             try:
-                self.db_writer.write_result(result)
+                self.repository.save(result.to_dict())
             except Exception as e:
-                print(f"Warning: Failed to persist validation result: {e}")
+                logger.warning("Failed to persist validation result: %s", e)
 
         return result
 
-    def validate_batch(self, events: List[Dict[str, Any]], persist: bool = True) -> List[ValidationResult]:
+    def validate_batch(
+        self, events: List[Dict[str, Any]], persist: bool = True
+    ) -> List[ValidationResult]:
         """
         Validate a batch of events.
 
@@ -145,12 +138,12 @@ class DataValidator:
             result = self.validate_event(event, persist=False)
             results.append(result)
 
-        # Batch persist for efficiency
-        if persist and self.enable_persistence and self.db_writer:
+        # Batch persist: one statement and one commit for the whole batch.
+        if persist and self.enable_persistence and self.repository:
             try:
-                self.db_writer.write_batch(results)
+                self.repository.save_many([item.to_dict() for item in results])
             except Exception as e:
-                print(f"Warning: Failed to persist validation batch: {e}")
+                logger.warning("Failed to persist validation batch: %s", e)
 
         return results
 
@@ -168,8 +161,8 @@ class DataValidator:
 
     def close(self):
         """Clean up resources."""
-        if self.db_writer:
-            self.db_writer.disconnect()
+        if self.repository:
+            db.close_pool()
 
 
 # Convenience functions for direct usage

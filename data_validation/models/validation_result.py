@@ -11,10 +11,9 @@ Design Philosophy:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional, Dict, Any
-import json
 
 
 class ValidationStatus(Enum):
@@ -134,7 +133,7 @@ class ValidationResult:
 
     Attributes:
         event_id: Unique identifier for the event
-        table_name: Source table (e.g., "github_events_raw")
+        table_name: Source table (e.g., "github_events")
         status: Overall validation status (PASS/WARN/FAIL)
         failures: List of all validation failures
         validation_timestamp: When validation was performed
@@ -146,7 +145,7 @@ class ValidationResult:
     table_name: str
     status: ValidationStatus
     failures: List[ValidationFailure] = field(default_factory=list)
-    validation_timestamp: datetime = field(default_factory=datetime.utcnow)
+    validation_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     processing_time_ms: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -197,18 +196,23 @@ class ValidationResult:
             self.status = ValidationStatus.PASS
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for database persistence."""
+        """Convert to dictionary for database persistence.
+
+        Values stay as plain Python objects -- a real datetime for the
+        timestamp, lists and dicts for the JSONB columns. The repository adapts
+        them at the point of insertion.
+        """
         return {
             "event_id": self.event_id,
-            "table_name": self.table_name,
+            "source_table": self.table_name,
             "status": self.status.value,
-            "failed_checks": json.dumps(self.failed_checks),
-            "error_messages": json.dumps(self.error_messages),
+            "failed_checks": self.failed_checks,
+            "error_messages": self.error_messages,
             "severity": self._get_overall_severity(),
-            "validation_ts": self.validation_timestamp.isoformat(),
+            "validation_ts": self.validation_timestamp,
             "processing_time_ms": self.processing_time_ms,
-            "metadata": json.dumps(self.metadata),
-            "failure_details": json.dumps([f.to_dict() for f in self.failures]),
+            "metadata": self.metadata,
+            "failure_details": [f.to_dict() for f in self.failures],
         }
 
     def _get_overall_severity(self) -> str:
@@ -242,7 +246,7 @@ class ValidationResult:
 
 
 def create_pass_result(
-    event_id: str, table_name: str = "github_events_raw", metadata: Optional[Dict[str, Any]] = None
+    event_id: str, table_name: str = "github_events", metadata: Optional[Dict[str, Any]] = None
 ) -> ValidationResult:
     """Create a validation result for a fully passing event."""
     return ValidationResult(
@@ -253,7 +257,7 @@ def create_pass_result(
 def create_failure_result(
     event_id: str,
     failures: List[ValidationFailure],
-    table_name: str = "github_events_raw",
+    table_name: str = "github_events",
     metadata: Optional[Dict[str, Any]] = None,
 ) -> ValidationResult:
     """Create a validation result with failures (status auto-determined)."""

@@ -23,7 +23,7 @@ import logging
 import json
 import os
 import requests
-import psycopg2
+import db
 from minio import Minio
 from minio.error import S3Error
 from confluent_kafka import Producer
@@ -55,12 +55,8 @@ class E2ETest:
                         key, value = line.split("=", 1)
                         os.environ[key.strip()] = value.strip()
 
-        # Set defaults if not present
-        self.postgres_host = os.getenv("POSTGRES_HOST", "localhost")
-        self.postgres_port = os.getenv("POSTGRES_PORT", "5432")
-        self.postgres_db = os.getenv("POSTGRES_DB", "SentinelDQ_DB")
-        self.postgres_user = os.getenv("POSTGRES_USER", "postgres")
-        self.postgres_password = os.getenv("POSTGRES_PASSWORD", "postgres")
+        # Postgres settings come from db.config, which reads the same
+        # environment this method just loaded.
 
         self.minio_address = os.getenv("MINIO_ADDRESS", "localhost:9000")
         self.minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
@@ -121,7 +117,7 @@ class E2ETest:
 
         services = {
             "Kafka": ("localhost", 9092),
-            "Postgres": ("localhost", int(self.postgres_port)),
+            "Postgres": ("localhost", int(os.getenv("POSTGRES_PORT_HOST", "5432"))),
             "MinIO": ("localhost", 9000),
             "Validator API": ("localhost", 8000),
         }
@@ -218,55 +214,38 @@ class E2ETest:
         self.print_step("Verifying data in Postgres")
 
         try:
-            conn = psycopg2.connect(
-                host=self.postgres_host,
-                port=self.postgres_port,
-                database=self.postgres_db,
-                user=self.postgres_user,
-                password=self.postgres_password,
-            )
-            cursor = conn.cursor()
-
-            # Check if table exists
-            cursor.execute(
+            # Via db/, so connections are pooled and always returned -- the
+            # hand-rolled psycopg2 here leaked one on every failure path.
+            table_exists = db.fetch_all(
                 """
                 SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
+                    SELECT FROM information_schema.tables
                     WHERE table_name = 'github_events'
                 )
             """
-            )
-            table_exists = cursor.fetchone()[0]
+            )[0][0]
 
             if not table_exists:
                 self.print_error("Table 'github_events' does not exist")
                 return False
 
-            # Count events
-            cursor.execute("SELECT COUNT(*) FROM github_events")
-            count = cursor.fetchone()[0]
+            count = db.fetch_all("SELECT COUNT(*) FROM github_events")[0][0]
 
             self.print_info(f"Found {count} events in Postgres (expected at least {expected_count})")
 
             if count >= expected_count:
                 self.print_success(f"Postgres contains sufficient events ({count} >= {expected_count})")
 
-                # Show sample data
-                cursor.execute(
+                rows = db.fetch_all(
                     "SELECT event_id, event_type, actor_login, repo_name, created_at FROM github_events LIMIT 3"
                 )
-                rows = cursor.fetchall()
                 self.print_info("Sample events:")
                 for row in rows:
                     print(f"  - ID: {row[0]}, Type: {row[1]}, Actor: {row[2]}, Repo: {row[3]}")
 
-                cursor.close()
-                conn.close()
                 return True
             else:
                 self.print_error(f"Insufficient events in Postgres ({count} < {expected_count})")
-                cursor.close()
-                conn.close()
                 return False
 
         except Exception as e:
@@ -337,43 +316,34 @@ class E2ETest:
                 self.print_error(f"Health check failed with status {response.status_code}")
                 return False
 
-            # Get Postgres connection from earlier verification
-            conn = psycopg2.connect(
-                host=self.postgres_host,
-                port=self.postgres_port,
-                database=self.postgres_db,
-                user=self.postgres_user,
-                password=self.postgres_password,
+            # The raw event, not the flat row: the validation rules are written
+            # against GitHub's nested shape (repo.id, actor.login, payload.*),
+            # which a github_events row cannot satisfy.
+            rows = db.fetch_all(
+                "SELECT event_data FROM github_events_processed ORDER BY processed_at DESC LIMIT 1"
             )
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM github_events LIMIT 1")
-            columns = [desc[0] for desc in cursor.description]
-            row = cursor.fetchone()
-            cursor.close()
-            conn.close()
+            row = rows[0] if rows else None
 
             if not row:
                 self.print_error("No data available to validate")
                 return False
 
-            # Create a sample dataset for validation, converting datetime to string
-            sample_dict = dict(zip(columns, row))
-            # Convert datetime objects to ISO format strings
-            for key, value in sample_dict.items():
-                if hasattr(value, "isoformat"):
-                    sample_dict[key] = value.isoformat()
-            sample_data = [sample_dict]
+            # event_data is JSONB, so psycopg2 hands it back as a dict.
+            sample_event = row[0]
 
             # Test validation endpoint - API expects single event, not array
             response = requests.post(
                 "http://localhost:8000/validate",
-                json={"event": sample_dict, "event_id": str(sample_dict.get("event_id", "test-event"))},
+                json={"event": sample_event, "event_id": str(sample_event.get("id", "test-event"))},
                 timeout=10,
             )
 
             if response.status_code == 200:
                 result = response.json()
-                self.print_success(f"Validation completed: {result.get('summary', {})}")
+                self.print_success(
+                    f"Validation completed: status={result.get('status')}, "
+                    f"failures={len(result.get('failures', []))}"
+                )
                 return True
             else:
                 self.print_error(f"Validation failed with status {response.status_code}: {response.text}")

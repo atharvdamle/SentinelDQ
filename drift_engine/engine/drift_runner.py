@@ -2,8 +2,7 @@
 Main drift detection engine - orchestrates profiling and drift detection.
 """
 
-import psycopg2
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 import logging
 import yaml
@@ -16,7 +15,8 @@ from drift_engine.detectors import (
     DistributionDriftDetector,
     VolumeDriftDetector,
 )
-from drift_engine.persistence import DriftPostgresWriter
+import db
+from db import DriftRepository
 
 logger = logging.getLogger(__name__)
 
@@ -44,23 +44,24 @@ class DriftRunner:
         """
         # Load configuration
         if config_path is None:
-            config_path = os.path.join(os.path.dirname(__file__), "..", "config", "drift_config.yaml")
+            config_path = os.path.join(
+                os.path.dirname(__file__), "..", "config", "drift_config.yaml"
+            )
 
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
 
         logger.info(f"Loaded drift configuration from {config_path}")
 
-        # Database connection parameters
-        self.db_host = os.getenv("POSTGRES_HOST", "localhost")
-        self.db_port = int(os.getenv("POSTGRES_PORT", 5432))
-        self.db_name = os.getenv("POSTGRES_DB", "SentinelDQ_DB")
-        self.db_user = os.getenv("POSTGRES_USER", "postgres")
-        self.db_password = os.getenv("POSTGRES_PASSWORD", "")
+        # Connection settings come from db.config, which is the only place
+        # POSTGRES_* is read.
+        self.repository = DriftRepository()
 
         # Initialize detectors
         self.schema_detector = SchemaDriftDetector(self.config["thresholds"]["schema"])
-        self.distribution_detector = DistributionDriftDetector(self.config["thresholds"]["distribution"])
+        self.distribution_detector = DistributionDriftDetector(
+            self.config["thresholds"]["distribution"]
+        )
         self.volume_detector = VolumeDriftDetector(self.config["thresholds"]["volume"])
 
         self.min_sample_size = self.config["profiling"]["min_sample_size"]
@@ -76,7 +77,7 @@ class DriftRunner:
             DriftSummary with all detected drifts
         """
         if reference_time is None:
-            reference_time = datetime.utcnow()
+            reference_time = datetime.now(timezone.utc)
 
         logger.info(f"Starting drift detection run at {reference_time}")
 
@@ -153,7 +154,9 @@ class DriftRunner:
             )
             for drift in schema_drifts:
                 summary.add_result(drift)
-            summary.total_checks += len(baseline_schema_profile.fields) + len(current_schema_profile.fields)
+            summary.total_checks += len(baseline_schema_profile.fields) + len(
+                current_schema_profile.fields
+            )
 
         # Distribution drift
         if self.config["targets"]["distribution_drift"]["enabled"]:
@@ -165,7 +168,9 @@ class DriftRunner:
             )
             for drift in distribution_drifts:
                 summary.add_result(drift)
-            summary.total_checks += len(baseline_stat_profile.categorical) + len(baseline_stat_profile.numerical)
+            summary.total_checks += len(baseline_stat_profile.categorical) + len(
+                baseline_stat_profile.numerical
+            )
 
         # Volume drift
         if self.config["targets"]["volume_drift"]["enabled"]:
@@ -187,7 +192,9 @@ class DriftRunner:
 
         return summary
 
-    def _define_windows(self, reference_time: datetime) -> tuple[TimeWindow, TimeWindow]:
+    def _define_windows(
+        self, reference_time: datetime
+    ) -> tuple[TimeWindow, TimeWindow]:
         """
         Define baseline and current time windows.
 
@@ -228,25 +235,9 @@ class DriftRunner:
         """
 
         try:
-            conn = psycopg2.connect(
-                host=self.db_host,
-                port=self.db_port,
-                database=self.db_name,
-                user=self.db_user,
-                password=self.db_password,
-            )
-
-            with conn.cursor() as cursor:
-                cursor.execute(query, (window.start, window.end))
-
-                records = []
-                for row in cursor.fetchall():
-                    event_data = row[0]  # JSONB column
-                    records.append(event_data)
-
-            conn.close()
-            return records
-
+            # A server-side cursor, so the baseline window streams rather than
+            # arriving as one list -- it is seven days of JSONB events.
+            return [row[0] for row in db.fetch_iter(query, (window.start, window.end))]
         except Exception as e:
             logger.error(f"Failed to fetch data from PostgreSQL: {e}")
             raise
@@ -254,12 +245,20 @@ class DriftRunner:
     def _build_schema_profile(self, records: List[Dict[str, Any]]) -> SchemaProfile:
         """Build schema profile from records."""
         max_cardinality = self.config["profiling"]["max_cardinality_track"]
-        return SchemaProfile.from_records(records, max_cardinality_track=max_cardinality)
+        return SchemaProfile.from_records(
+            records, max_cardinality_track=max_cardinality
+        )
 
-    def _build_statistical_profile(self, records: List[Dict[str, Any]]) -> StatisticalProfile:
+    def _build_statistical_profile(
+        self, records: List[Dict[str, Any]]
+    ) -> StatisticalProfile:
         """Build statistical profile from records."""
-        categorical_fields = self.config["targets"]["distribution_drift"]["categorical_fields"]
-        numerical_fields = self.config["targets"]["distribution_drift"]["numerical_fields"]
+        categorical_fields = self.config["targets"]["distribution_drift"][
+            "categorical_fields"
+        ]
+        numerical_fields = self.config["targets"]["distribution_drift"][
+            "numerical_fields"
+        ]
         max_categories = self.config["profiling"]["categorical_max_categories"]
 
         return StatisticalProfile.from_records(
@@ -272,19 +271,25 @@ class DriftRunner:
     def _build_volume_profile(self, records: List[Dict[str, Any]]) -> VolumeProfile:
         """Build volume profile from records."""
         # Use categorical fields as entity dimensions
-        entity_fields = self.config["targets"]["distribution_drift"]["categorical_fields"]
+        entity_fields = self.config["targets"]["distribution_drift"][
+            "categorical_fields"
+        ]
         top_n = self.config["targets"]["volume_drift"]["top_n_entities"]
 
-        return VolumeProfile.from_records(records, entity_fields=entity_fields, top_n=top_n)
+        return VolumeProfile.from_records(
+            records, entity_fields=entity_fields, top_n=top_n
+        )
 
     def _persist_results(self, results: List):
         """Persist drift results to PostgreSQL."""
-        batch_size = self.config["database"]["batch_insert_size"]
-
         try:
-            with DriftPostgresWriter() as writer:
-                writer.write_results(results, batch_size=batch_size)
+            self.repository.save_many(
+                [result.to_dict() for result in results],
+                page_size=self.config["database"]["batch_insert_size"],
+            )
             logger.info(f"Persisted {len(results)} drift results to database")
         except Exception as e:
+            # Deliberately not re-raised: the caller still gets its summary. But
+            # the summary then describes drifts that were never stored, so this
+            # is logged as an error rather than a warning.
             logger.error(f"Failed to persist drift results: {e}")
-            # Don't raise - we still want to return the summary
