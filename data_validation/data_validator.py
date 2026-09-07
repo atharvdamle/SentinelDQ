@@ -19,15 +19,19 @@ Usage:
 """
 
 from data_validation.metrics import get_metrics
-from db.repositories import ValidationRepository
 from data_validation.models import ValidationResult, ValidationStatus
 from data_validation.engine import ValidationEngine
+import db
+from db import DatabaseConfig, ValidationRepository
+import logging
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+logger = logging.getLogger(__name__)
 
 
 class DataValidator:
@@ -64,35 +68,19 @@ class DataValidator:
         self.enable_persistence = enable_persistence
         self.repository = None
         if enable_persistence:
-            # If caller didn't supply persistence_config, try to build one from
-            # environment variables so the validator can run in Docker
-            # without extra wiring.
-            if not persistence_config:
-                import os
-
-                db_host = os.getenv("POSTGRES_HOST", "postgres")
-                db_port = int(os.getenv("POSTGRES_PORT", 5432))
-                db_name = os.getenv("POSTGRES_DB", "sentineldq")
-                db_user = os.getenv("POSTGRES_USER", "postgres")
-                db_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-
-                persistence_config = {
-                    "host": db_host,
-                    "port": db_port,
-                    "database": db_name,
-                    "user": db_user,
-                    "password": db_password,
-                }
-
-            if persistence_config:
-                self.repository = ValidationRepository(persistence_config)
-                try:
-                    self.repository.connect()
-                    self.repository.ensure_table_exists()
-                except Exception as e:
-                    # Warn but don't crash the validator; higher layers may
-                    # choose to proceed without persistence.
-                    print(f"Warning: could not initialize persistence repository: {e}")
+            # Connection settings come from db.config; persistence_config is
+            # only for callers that want to override them.
+            try:
+                db.configure(DatabaseConfig.from_env(
+                    application_name="sentineldq-validator",
+                    overrides=persistence_config,
+                ))
+                db.init_schema()
+                self.repository = ValidationRepository()
+            except Exception as e:
+                # Warn but don't crash the validator; higher layers may
+                # choose to proceed without persistence.
+                logger.warning("Could not initialize persistence: %s", e)
 
         # Initialize metrics
         self.enable_metrics = enable_metrics
@@ -125,9 +113,9 @@ class DataValidator:
         # Persist to database
         if persist and self.enable_persistence and self.repository:
             try:
-                self.repository.save(result)
+                self.repository.save(result.to_dict())
             except Exception as e:
-                print(f"Warning: Failed to persist validation result: {e}")
+                logger.warning("Failed to persist validation result: %s", e)
 
         return result
 
@@ -150,13 +138,12 @@ class DataValidator:
             result = self.validate_event(event, persist=False)
             results.append(result)
 
-        # Batch persist for efficiency
+        # Batch persist: one statement and one commit for the whole batch.
         if persist and self.enable_persistence and self.repository:
             try:
-                for item in results:
-                    self.repository.save(item)
+                self.repository.save_many([item.to_dict() for item in results])
             except Exception as e:
-                print(f"Warning: Failed to persist validation batch: {e}")
+                logger.warning("Failed to persist validation batch: %s", e)
 
         return results
 
@@ -175,7 +162,7 @@ class DataValidator:
     def close(self):
         """Clean up resources."""
         if self.repository:
-            self.repository.disconnect()
+            db.close_pool()
 
 
 # Convenience functions for direct usage

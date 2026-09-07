@@ -2,7 +2,7 @@
 Main drift detection engine - orchestrates profiling and drift detection.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 import logging
 import yaml
@@ -15,7 +15,8 @@ from drift_engine.detectors import (
     DistributionDriftDetector,
     VolumeDriftDetector,
 )
-from db.repositories import DriftRepository
+import db
+from db import DriftRepository
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,9 @@ class DriftRunner:
 
         logger.info(f"Loaded drift configuration from {config_path}")
 
-        # Database connection parameters
-        self.db_host = os.getenv("POSTGRES_HOST", "localhost")
-        self.db_port = int(os.getenv("POSTGRES_PORT", 5432))
-        self.db_name = os.getenv("POSTGRES_DB", "SentinelDQ_DB")
-        self.db_user = os.getenv("POSTGRES_USER", "postgres")
-        self.db_password = os.getenv("POSTGRES_PASSWORD", "")
+        # Connection settings come from db.config, which is the only place
+        # POSTGRES_* is read.
+        self.repository = DriftRepository()
 
         # Initialize detectors
         self.schema_detector = SchemaDriftDetector(self.config["thresholds"]["schema"])
@@ -79,7 +77,7 @@ class DriftRunner:
             DriftSummary with all detected drifts
         """
         if reference_time is None:
-            reference_time = datetime.utcnow()
+            reference_time = datetime.now(timezone.utc)
 
         logger.info(f"Starting drift detection run at {reference_time}")
 
@@ -237,20 +235,9 @@ class DriftRunner:
         """
 
         try:
-            persistence = PersistenceService(
-                {
-                    "host": self.db_host,
-                    "port": self.db_port,
-                    "database": self.db_name,
-                    "user": self.db_user,
-                    "password": self.db_password,
-                }
-            )
-            with persistence:
-                rows = persistence.fetch_all(query, (window.start, window.end))
-                records = [row[0] for row in rows]
-            return records
-
+            # A server-side cursor, so the baseline window streams rather than
+            # arriving as one list -- it is seven days of JSONB events.
+            return [row[0] for row in db.fetch_iter(query, (window.start, window.end))]
         except Exception as e:
             logger.error(f"Failed to fetch data from PostgreSQL: {e}")
             raise
@@ -295,23 +282,14 @@ class DriftRunner:
 
     def _persist_results(self, results: List):
         """Persist drift results to PostgreSQL."""
-        batch_size = self.config["database"]["batch_insert_size"]
-
         try:
-            repository = DriftRepository(
-                {
-                    "host": self.db_host,
-                    "port": self.db_port,
-                    "database": self.db_name,
-                    "user": self.db_user,
-                    "password": self.db_password,
-                }
+            self.repository.save_many(
+                [result.to_dict() for result in results],
+                page_size=self.config["database"]["batch_insert_size"],
             )
-            with repository:
-                repository.ensure_table_exists()
-                for result in results:
-                    repository.save(result)
             logger.info(f"Persisted {len(results)} drift results to database")
         except Exception as e:
+            # Deliberately not re-raised: the caller still gets its summary. But
+            # the summary then describes drifts that were never stored, so this
+            # is logged as an error rather than a warning.
             logger.error(f"Failed to persist drift results: {e}")
-            # Don't raise - we still want to return the summary

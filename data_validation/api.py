@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
@@ -5,8 +7,13 @@ from data_validation import DataValidator
 
 app = FastAPI(title="SentinelDQ Validator")
 
-# Initialize validator once. Persistence and metrics are enabled by env-config inside DataValidator.
-_validator = DataValidator(enable_persistence=False, enable_metrics=True)
+# Persisting the verdict costs one pooled upsert per request. The consumer
+# calls this endpoint synchronously with a short timeout (VALIDATOR_TIMEOUT,
+# default 0.5s) and drops events fail-closed when it expires, so set
+# VALIDATOR_PERSIST=false to take the write off the hot path if that ever
+# becomes the binding constraint.
+_persist = os.getenv("VALIDATOR_PERSIST", "true").lower() not in ("false", "0", "no")
+_validator = DataValidator(enable_persistence=_persist, enable_metrics=True)
 
 
 class ValidateRequest(BaseModel):
@@ -17,7 +24,7 @@ class ValidateRequest(BaseModel):
 @app.post("/validate")
 async def validate(req: ValidateRequest):
     try:
-        result = _validator.validate_event(req.event, event_id=req.event_id, persist=False)
+        result = _validator.validate_event(req.event, event_id=req.event_id, persist=_persist)
         return {
             "status": result.status.value,
             "event_id": result.event_id,

@@ -23,17 +23,23 @@ services:
       - app-network
 
   postgres:
-    image: postgres:latest
+    image: postgres:16
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      # Host-side port only. In-network clients always use 5432.
+      - "${POSTGRES_PORT_HOST:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   minio:
     image: minio/minio:latest
@@ -59,20 +65,21 @@ services:
       context: .
       dockerfile: Dockerfile
     depends_on:
-      - postgres
-      - minio
-      - kafka
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
     environment:
       PYTHONUNBUFFERED: '1'
-      POSTGRES_HOST: ${POSTGRES_HOST}
-      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       MINIO_ADDRESS: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-    command: ["python", "scripts/wait_and_run.py", "postgres:${POSTGRES_PORT}", "minio:9000", "--", "uvicorn", "data_validation.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["python", "scripts/wait_and_run.py", "postgres:5432", "minio:9000", "--", "uvicorn", "data_validation.api:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     healthcheck:
@@ -104,18 +111,22 @@ services:
       context: .
       dockerfile: Dockerfile
     depends_on:
-      - kafka
-      - postgres
+      kafka:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      validator:
+        condition: service_healthy
     environment:
       PYTHONUNBUFFERED: '1'
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       KAFKA_TOPIC: ${KAFKA_TOPIC}
       POSTGRES_HOST: postgres
-      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    command: ["python", "scripts/wait_and_run.py", "kafka:19092", "postgres:${POSTGRES_PORT}", "--", "python", "-m", "ingestion.consumers.postgres_consumer"]
+    command: ["python", "scripts/wait_and_run.py", "kafka:19092", "postgres:5432", "--", "python", "-m", "ingestion.consumers.postgres_consumer"]
     networks:
       - app-network
 
@@ -145,15 +156,16 @@ services:
       context: .
       dockerfile: Dockerfile
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       PYTHONUNBUFFERED: '1'
       POSTGRES_HOST: postgres
-      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    command: ["python", "scripts/wait_and_run.py", "postgres:${POSTGRES_PORT}", "--", "python", "-m", "drift_engine.drift_service"]
+    command: ["python", "scripts/wait_and_run.py", "postgres:5432", "--", "python", "-m", "drift_engine.drift_service"]
     networks:
       - app-network
 

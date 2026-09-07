@@ -3,10 +3,9 @@ Drift result models and data structures.
 """
 
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from enum import Enum
-import json
 
 
 class DriftType(Enum):
@@ -71,11 +70,16 @@ class DriftResult:
     drift_score: float  # Normalized 0-1 score where higher = more drift
 
     severity: Severity
-    detected_at: datetime = field(default_factory=datetime.utcnow)
+    detected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for database insertion."""
+        """Convert to dictionary for database insertion.
+
+        Values stay as plain Python objects. The repository adapts the JSONB
+        columns at the point of insertion, so this stays symmetric with what
+        reads back out of the database.
+        """
         return {
             "drift_type": self.drift_type.value,
             "entity": self.entity,
@@ -85,12 +89,12 @@ class DriftResult:
             "current_start": self.current_window.start,
             "current_end": self.current_window.end,
             "metric_name": self.metric_name,
-            "baseline_value": (json.dumps(self.baseline_value) if self.baseline_value is not None else None),
-            "current_value": (json.dumps(self.current_value) if self.current_value is not None else None),
+            "baseline_value": self.baseline_value,
+            "current_value": self.current_value,
             "drift_score": self.drift_score,
             "severity": self.severity.value,
             "detected_at": self.detected_at,
-            "metadata": json.dumps(self.metadata),
+            "metadata": self.metadata,
         }
 
     def __str__(self):
