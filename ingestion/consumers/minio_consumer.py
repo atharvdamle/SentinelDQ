@@ -1,5 +1,6 @@
 import os
 import json
+import signal
 import logging
 import uuid
 from datetime import datetime
@@ -34,6 +35,7 @@ class MinIOConsumer:
         )
         self.topic = os.getenv("KAFKA_TOPIC")
         logger.info(f"Will consume from Kafka topic: {self.topic}")
+        self._running = True
 
         # MinIO configuration
         self.host = os.getenv("MINIO_HOST", "localhost")
@@ -129,6 +131,10 @@ class MinIOConsumer:
             )
             raise
 
+    def stop(self):
+        """Gracefully stop consuming."""
+        self._running = False
+
     def start_consuming(self):
         """Start consuming messages from Kafka."""
         try:
@@ -139,7 +145,7 @@ class MinIOConsumer:
             total_size_kb = 0
             start_time = datetime.utcnow()
 
-            while True:
+            while self._running:
                 msg = self.consumer.poll(1.0)
 
                 if msg is None:
@@ -181,6 +187,8 @@ class MinIOConsumer:
 
 def main():
     consumer = MinIOConsumer()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: consumer.stop())
     consumer.start_consuming()
 
 

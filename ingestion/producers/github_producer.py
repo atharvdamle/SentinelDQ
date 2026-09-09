@@ -1,8 +1,8 @@
 import os
 import json
 import time
+import signal
 import logging
-import schedule
 import requests
 from confluent_kafka import Producer
 from dotenv import load_dotenv
@@ -27,6 +27,7 @@ class GitHubEventsProducer:
             {"bootstrap.servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS"), "client.id": "github_events_producer"}
         )
         self.topic = os.getenv("KAFKA_TOPIC")
+        self._running = True
 
     def fetch_events(self):
         """Fetch events from GitHub API."""
@@ -63,21 +64,32 @@ class GitHubEventsProducer:
         self.producer.flush()
         logger.info(f"Produced {len(events)} events to Kafka topic {self.topic}")
 
+    def stop(self):
+        """Gracefully stop polling."""
+        self._running = False
+
+    def run(self):
+        """Poll GitHub on a fixed interval until stopped."""
+        try:
+            while self._running:
+                self.produce_events()
+                self._sleep_until_next_poll()
+        finally:
+            self.producer.flush()
+            logger.info("Producer stopped")
+
+    def _sleep_until_next_poll(self):
+        """Sleep in short slices so a stop signal is noticed promptly."""
+        deadline = time.monotonic() + self.poll_interval
+        while self._running and time.monotonic() < deadline:
+            time.sleep(1)
+
 
 def main():
     producer = GitHubEventsProducer()
-    interval = int(os.getenv("GITHUB_EVENTS_FETCH_INTERVAL", 60))
-
-    # Schedule the job
-    schedule.every(interval).seconds.do(producer.produce_events)
-
-    # Run immediately once
-    producer.produce_events()
-
-    # Keep running
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: producer.stop())
+    producer.run()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import os
 import json
+import signal
 import logging
 import requests
 from confluent_kafka import Consumer, KafkaError
@@ -31,9 +32,6 @@ class PostgresConsumer:
         self._running = True
 
         self.repository = EventRepository()
-        # Events are written in batches rather than one connection and one
-        # INSERT per message. The flush interval bounds how long a validated
-        # event can sit unwritten.
         self.batch_size = int(os.getenv("INGEST_BATCH_SIZE", "100"))
         self.flush_interval_seconds = float(os.getenv("INGEST_FLUSH_INTERVAL", "5"))
         self._pending = []
@@ -52,11 +50,8 @@ class PostgresConsumer:
 
     def store_event(self, event):
         """Store a single event in PostgreSQL."""
-        # Validate event with central validator service (fail-closed)
-        # Try the primary validator URL, but allow fallbacks to support host-run consumers.
         fallback_env = os.getenv("VALIDATOR_FALLBACKS", "")
         fallback_list = [u.strip() for u in fallback_env.split(",") if u.strip()]
-        # sensible defaults: localhost and host.docker.internal (useful on Docker for Windows)
         default_fallbacks = ["http://localhost:8000/validate", "http://host.docker.internal:8000/validate"]
         try_urls = [self.validator_url] + fallback_list + default_fallbacks
 
@@ -204,6 +199,8 @@ def _parse_created_at(value):
 
 def main():
     consumer = PostgresConsumer()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: consumer.stop())
     consumer.start_consuming()
 
 

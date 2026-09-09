@@ -103,6 +103,7 @@ services:
       GITHUB_EVENTS_URL: ${GITHUB_EVENTS_URL}
       GITHUB_POLL_INTERVAL_SECONDS: ${GITHUB_POLL_INTERVAL_SECONDS}
     command: ["python", "scripts/wait_and_run.py", "kafka:19092", "--", "python", "-m", "ingestion.producers.github_producer"]
+    stop_grace_period: 30s
     networks:
       - app-network
 
@@ -127,6 +128,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     command: ["python", "scripts/wait_and_run.py", "kafka:19092", "postgres:5432", "--", "python", "-m", "ingestion.consumers.postgres_consumer"]
+    stop_grace_period: 30s
     networks:
       - app-network
 
@@ -148,6 +150,7 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET}
       MINIO_SECURE: 'False'
     command: ["python", "scripts/wait_and_run.py", "kafka:19092", "minio:9000", "--", "python", "-m", "ingestion.consumers.minio_consumer"]
+    stop_grace_period: 30s
     networks:
       - app-network
 
