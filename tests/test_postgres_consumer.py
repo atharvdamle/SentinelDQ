@@ -48,12 +48,16 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer.repository = MagicMock()
         return consumer, mock_consumer, mock_init_schema
 
-    def validated(self, status="PASS"):
-        """Stub the validator HTTP call, which store_event makes first."""
+    def validated(self, consumer, status="PASS"):
+        """Stub the validator HTTP call, which store_event makes first.
+
+        The call goes through the consumer's pooled session, so the patch has
+        to land there rather than on the module's `requests`.
+        """
         response = MagicMock()
         response.json.return_value = {"status": status}
         response.raise_for_status.return_value = None
-        return patch("ingestion.consumers.postgres_consumer.requests.post", return_value=response)
+        return patch.object(consumer.session, "post", return_value=response)
 
     def message(self, offset=0):
         """A Kafka message carrying only the coordinates store_event commits."""
@@ -73,7 +77,7 @@ class TestPostgresConsumer(unittest.TestCase):
         """Events used to cost one connection and one INSERT each."""
         consumer, _, _ = self.build_consumer()
 
-        with self.validated():
+        with self.validated(consumer):
             consumer.store_event(self.mock_event, self.message())
 
         consumer.repository.save_batch.assert_not_called()
@@ -83,7 +87,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
         consumer.batch_size = 1000
 
-        with self.validated():
+        with self.validated(consumer):
             for index in range(5):
                 event = dict(self.mock_event, id=str(index))
                 consumer.store_event(event, self.message(index))
@@ -96,7 +100,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
         consumer.batch_size = 3
 
-        with self.validated():
+        with self.validated(consumer):
             for index in range(3):
                 consumer.store_event(dict(self.mock_event, id=str(index)), self.message(index))
 
@@ -106,7 +110,7 @@ class TestPostgresConsumer(unittest.TestCase):
     def test_event_is_mapped_onto_the_flat_columns(self):
         consumer, _, _ = self.build_consumer()
 
-        with self.validated():
+        with self.validated(consumer):
             consumer.store_event(self.mock_event, self.message())
 
         columns = consumer._pending[0]["columns"]
@@ -121,7 +125,7 @@ class TestPostgresConsumer(unittest.TestCase):
         """A naive value would be read as server-local time by the database."""
         consumer, _, _ = self.build_consumer()
 
-        with self.validated():
+        with self.validated(consumer):
             consumer.store_event(self.mock_event, self.message())
 
         created_at = consumer._pending[0]["columns"]["created_at"]
@@ -133,7 +137,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
         event = dict(self.mock_event, created_at="2025-10-20T12:00:00.123456Z")
 
-        with self.validated():
+        with self.validated(consumer):
             consumer.store_event(event, self.message())
 
         created_at = consumer._pending[0]["columns"]["created_at"]
@@ -144,7 +148,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
         event = dict(self.mock_event, created_at="2025-10-20T12:00:00+00:00")
 
-        with self.validated():
+        with self.validated(consumer):
             consumer.store_event(event, self.message())
 
         self.assertIsNotNone(consumer._pending[0]["columns"]["created_at"].tzinfo)
@@ -152,7 +156,7 @@ class TestPostgresConsumer(unittest.TestCase):
     def test_failed_validation_is_not_stored(self):
         consumer, _, _ = self.build_consumer()
 
-        with self.validated(status="FAIL"):
+        with self.validated(consumer, status="FAIL"):
             consumer.store_event(self.mock_event, self.message())
 
         self.assertEqual(consumer._pending, [])
@@ -162,9 +166,8 @@ class TestPostgresConsumer(unittest.TestCase):
 
         consumer, _, _ = self.build_consumer()
 
-        with patch(
-            "ingestion.consumers.postgres_consumer.requests.post",
-            side_effect=requests.exceptions.ConnectionError("down"),
+        with patch.object(
+            consumer.session, "post", side_effect=requests.exceptions.ConnectionError("down")
         ):
             consumer.store_event(self.mock_event, self.message())
 
@@ -174,7 +177,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
         consumer.batch_size = 1000
 
-        with self.validated():
+        with self.validated(consumer):
             consumer.store_event(self.mock_event, self.message(7))
         consumer.consumer.commit.assert_not_called()
         consumer.flush()
@@ -190,7 +193,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer.retry_backoff_seconds = 0
         consumer.repository.save_batch.side_effect = Exception("Database error")
 
-        with self.validated():
+        with self.validated(consumer):
             consumer.store_event(self.mock_event, self.message())
         with patch.object(consumer, "_dead_letter", return_value=False):
             consumer.flush()
@@ -203,7 +206,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer.retry_backoff_seconds = 0
         consumer.repository.save_batch.side_effect = Exception("Database error")
 
-        with self.validated():
+        with self.validated(consumer):
             consumer.store_event(self.mock_event, self.message())
         with patch("ingestion.consumers.postgres_consumer.Producer") as mock_producer:
             mock_producer.return_value.flush.return_value = 0
@@ -220,9 +223,8 @@ class TestPostgresConsumer(unittest.TestCase):
 
         consumer, _, _ = self.build_consumer()
 
-        with patch(
-            "ingestion.consumers.postgres_consumer.requests.post",
-            side_effect=requests.exceptions.ConnectionError("down"),
+        with patch.object(
+            consumer.session, "post", side_effect=requests.exceptions.ConnectionError("down")
         ):
             handled = consumer.store_event(self.mock_event, self.message(3))
         consumer.flush()

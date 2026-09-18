@@ -4,15 +4,16 @@ import time
 import signal
 import logging
 import requests
-from confluent_kafka import Consumer, KafkaError, Producer, TopicPartition
+from requests.adapters import HTTPAdapter
+from confluent_kafka import Consumer, KafkaException, Producer, TopicPartition
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 
 import db
 from db import EventRepository
+from ingestion.config import configure_logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+configure_logging()
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -38,6 +39,10 @@ class PostgresConsumer:
 
         self.repository = EventRepository()
         self.batch_size = int(os.getenv("INGEST_BATCH_SIZE", "100"))
+        if self.batch_size < 1:
+            # `len(_pending) >= 0` is always true, which degrades the batching
+            # to one write per event without any visible symptom.
+            raise ValueError(f"INGEST_BATCH_SIZE must be at least 1, got {self.batch_size}")
         self.flush_interval_seconds = float(os.getenv("INGEST_FLUSH_INTERVAL", "5"))
         self.max_write_attempts = 3
         self.retry_backoff_seconds = 1.0
@@ -45,9 +50,20 @@ class PostgresConsumer:
         self._offsets = {}
         self._last_flush = datetime.now(timezone.utc)
 
-        # Validator endpoint (env-configurable)
-        self.validator_url = os.getenv("VALIDATOR_URL", "http://validator:8000/validate")
-        self.validator_timeout = float(os.getenv("VALIDATOR_TIMEOUT", "0.5"))
+        # Validator endpoints, resolved once rather than per message. The
+        # localhost/host.docker.internal defaults are deliberately gone: in a
+        # container they can reach an unrelated service whose JSON would then
+        # be trusted as a validation verdict.
+        self.validator_urls = [os.getenv("VALIDATOR_URL", "http://validator:8000/validate")] + [
+            url.strip() for url in os.getenv("VALIDATOR_FALLBACKS", "").split(",") if url.strip()
+        ]
+        # Covers connect *and* read against a single-worker uvicorn that writes
+        # a row per call; 0.5s timed out under any load at all.
+        self.validator_timeout = float(os.getenv("VALIDATOR_TIMEOUT", "5"))
+        self.session = requests.Session()
+        adapter = HTTPAdapter(pool_maxsize=len(self.validator_urls))
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
 
         # Initialize database
         self.init_db()
@@ -56,39 +72,43 @@ class PostgresConsumer:
         """Create any missing tables and indexes. The DDL lives in db/schema.py."""
         db.init_schema()
 
-    def store_event(self, event, msg):
-        """Buffer a single event for the next write to PostgreSQL.
+    def validate(self, event):
+        """Ask the validator about one event, trying each configured URL.
 
-        Returns False only when the validator was unreachable, so the offset
-        must not advance. A FAIL is skipped unless its sole cause is the
-        duplicate check (see _is_duplicate_redelivery).
+        Returns (status, failures), or (None, []) when no URL produced a
+        verdict. The two reasons for that -- nothing reachable, and a 200
+        without a `status` field -- used to share one log line; they are
+        different faults, so they now log differently.
         """
-        fallback_env = os.getenv("VALIDATOR_FALLBACKS", "")
-        fallback_list = [u.strip() for u in fallback_env.split(",") if u.strip()]
-        default_fallbacks = ["http://localhost:8000/validate", "http://host.docker.internal:8000/validate"]
-        try_urls = [self.validator_url] + fallback_list + default_fallbacks
-
-        status = None
-        failures = []
         last_err = None
-        for url in try_urls:
+        for url in self.validator_urls:
             try:
-                resp = requests.post(url, json={"event": event}, timeout=self.validator_timeout)
+                resp = self.session.post(url, json={"event": event}, timeout=self.validator_timeout)
                 resp.raise_for_status()
-                v = resp.json()
-                status = v.get("status")
-                failures = v.get("failures", [])
-                # update validator_url to the working one for future calls
-                self.validator_url = url
-                break
+                body = resp.json()
             except requests.exceptions.RequestException as e:
                 last_err = e
                 logger.debug(f"Validator call to {url} failed: {e}")
                 continue
 
+            status = body.get("status")
+            if status is None:
+                logger.error(f"Validator at {url} answered without a status field: {body}")
+            return status, body.get("failures", [])
+
+        logger.error(f"No validator reachable. Attempts: {self.validator_urls}. Last error: {last_err}")
+        return None, []
+
+    def store_event(self, event, msg):
+        """Buffer a single event for the next write to PostgreSQL.
+
+        Returns False only when the validator gave no verdict, so the offset
+        must not advance. A FAIL is skipped unless its sole cause is the
+        duplicate check (see _is_duplicate_redelivery).
+        """
+        status, failures = self.validate(event)
         if status is None:
-            logger.error(f"Validator call failed (fail-closed). Attempts: {try_urls}. Last error: {last_err}")
-            # Fail-closed: do not store the event if validator is unavailable
+            # Fail-closed: do not store an event nothing has vouched for.
             return False
 
         self._offsets[(msg.topic(), msg.partition())] = msg.offset() + 1
@@ -102,23 +122,7 @@ class PostgresConsumer:
                 "event_id": event["id"],
                 "raw": event,
                 "validation_status": status,
-                "columns": {
-                    "event_id": event["id"],
-                    "event_type": event["type"],
-                    "repo_id": event["repo"]["id"],
-                    "repo_name": event["repo"]["name"],
-                    "repo_url": event["repo"]["url"],
-                    "actor_id": event["actor"]["id"],
-                    "actor_login": event["actor"]["login"],
-                    "actor_url": event["actor"]["url"],
-                    "actor_avatar": event["actor"]["avatar_url"],
-                    "payload_ref": event["payload"].get("ref"),
-                    "payload_head": event["payload"].get("head"),
-                    "payload_before": event["payload"].get("before"),
-                    "push_id": event["payload"].get("push_id"),
-                    "public": event["public"],
-                    "created_at": _parse_created_at(event["created_at"]),
-                },
+                "columns": _columns(event),
             }
         )
 
@@ -206,11 +210,14 @@ class PostgresConsumer:
                     self._flush_if_due()
                     continue
                 if msg.error():
-                    if msg.error().code() == KafkaError._PARTITION_EOF:
-                        continue
-                    else:
-                        logger.error(f"Consumer error: {msg.error()}")
-                        continue
+                    if msg.error().fatal():
+                        # Retrying costs one log line per poll forever; exit and
+                        # let the restart policy rebuild the client.
+                        logger.critical(f"Fatal Kafka error, exiting: {msg.error()}")
+                        raise KafkaException(msg.error())
+                    logger.error(f"Consumer error: {msg.error()}")
+                    self._flush_if_due()
+                    continue
 
                 try:
                     event = json.loads(msg.value())
@@ -218,6 +225,7 @@ class PostgresConsumer:
                 except Exception as e:
                     logger.error(f"Error processing message at offset {msg.offset()}: {e}")
                     self._offsets[(msg.topic(), msg.partition())] = msg.offset() + 1
+                    self._flush_if_due()
                     continue
 
                 if not handled:
@@ -268,8 +276,38 @@ def _is_duplicate_redelivery(failures):
     return bool(critical) and all(f.get("check_type") == "duplicate" for f in critical)
 
 
+def _columns(event):
+    """Map an event onto the flat github_events columns.
+
+    Everything but `id` is read defensively. The rules YAML marks `public` as
+    only WARN and `payload` as optional, and the three `*url` fields are not
+    required at all -- so hard indexing here dropped events that had just
+    *passed* validation. Every column but event_id is nullable.
+    """
+    repo = event.get("repo") or {}
+    actor = event.get("actor") or {}
+    payload = event.get("payload") or {}
+    return {
+        "event_id": event["id"],
+        "event_type": event.get("type"),
+        "repo_id": repo.get("id"),
+        "repo_name": repo.get("name"),
+        "repo_url": repo.get("url"),
+        "actor_id": actor.get("id"),
+        "actor_login": actor.get("login"),
+        "actor_url": actor.get("url"),
+        "actor_avatar": actor.get("avatar_url"),
+        "payload_ref": payload.get("ref"),
+        "payload_head": payload.get("head"),
+        "payload_before": payload.get("before"),
+        "push_id": payload.get("push_id"),
+        "public": event.get("public"),
+        "created_at": _parse_created_at(event.get("created_at")),
+    }
+
+
 def _parse_created_at(value):
-    """Parse GitHub's event timestamp as UTC.
+    """Parse GitHub's event timestamp as UTC, or None if it is not a string.
 
     GitHub sends whole-second Zulu time, but fromisoformat also accepts
     fractional seconds and explicit offsets -- a fixed "%Y-%m-%dT%H:%M:%SZ"
@@ -279,6 +317,9 @@ def _parse_created_at(value):
     Returning an aware datetime keeps the value correct in the TIMESTAMPTZ
     column regardless of the database's own timezone.
     """
+    if not isinstance(value, str):
+        return None
+
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 

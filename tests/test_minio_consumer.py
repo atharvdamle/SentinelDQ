@@ -182,7 +182,8 @@ class TestMinIOConsumer(unittest.TestCase):
         # Initialize consumer and start consuming
         with patch.dict("os.environ", self.mock_env):
             consumer = MinIOConsumer()
-            consumer.store_event = MagicMock()  # Mock store_event to avoid S3 calls
+            # store_event returns the stored size, which the loop accumulates.
+            consumer.store_event = MagicMock(return_value=1.5)
             consumer.start_consuming()
 
         # Verify consumer was subscribed to correct topic

@@ -1,11 +1,18 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import json
-from ingestion.producers.github_producer import GitHubEventsProducer
+from ingestion.producers.github_producer import REQUEST_TIMEOUT_SECONDS, GitHubEventsProducer
 
 
 class TestGitHubEventsProducer(unittest.TestCase):
     def setUp(self):
+        # Patch the name the module bound at import. An idempotent producer
+        # acquires its id eagerly, so an unpatched client dials localhost:9092
+        # for real on construction.
+        self.producer_patcher = patch("ingestion.producers.github_producer.Producer")
+        self.producer_patcher.start()
+        self.addCleanup(self.producer_patcher.stop)
+
         self.mock_env = {
             "GITHUB_EVENTS_URL": "https://api.github.com/events",
             "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
@@ -15,39 +22,66 @@ class TestGitHubEventsProducer(unittest.TestCase):
         }
         with patch.dict("os.environ", self.mock_env):
             self.producer = GitHubEventsProducer()
+        # Requests now go through a pooled session, so patch that, not the
+        # module-level requests.get.
+        self.producer.session = MagicMock()
 
-    @patch("requests.get")
-    def test_fetch_events_success(self, mock_get):
+    def test_fetch_events_success(self):
         # Prepare mock response
         mock_events = [{"id": "1", "type": "PushEvent"}, {"id": "2", "type": "PullRequestEvent"}]
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = mock_events
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_response.headers = {}
+        self.producer.session.get.return_value = mock_response
 
         # Test fetch_events method
         events = self.producer.fetch_events()
 
         # Verify results
         self.assertEqual(events, mock_events)
-        mock_get.assert_called_once_with(
+        # A request without a timeout hangs the poll loop forever.
+        self.producer.session.get.assert_called_once_with(
             self.mock_env["GITHUB_EVENTS_URL"],
             headers={
                 "Accept": "application/vnd.github.v3+json",
                 "Authorization": f"Bearer {self.mock_env['GITHUB_TOKEN']}",
             },
+            timeout=REQUEST_TIMEOUT_SECONDS,
         )
 
-    @patch("requests.get")
-    def test_fetch_events_failure(self, mock_get):
+    def test_fetch_events_failure(self):
         # Simulate API error
-        mock_get.side_effect = Exception("API Error")
+        self.producer.session.get.side_effect = Exception("API Error")
 
         # Test fetch_events method
         events = self.producer.fetch_events()
 
         # Verify empty list is returned on error
         self.assertEqual(events, [])
+
+    def test_a_failed_delivery_leaves_the_id_unseen(self):
+        """An id marked seen at enqueue time would never be refetched."""
+        mock_msg = MagicMock()
+        mock_msg.key.return_value = b"1"
+
+        self.producer.delivery_report(Exception("Delivery failed"), mock_msg)
+        self.assertNotIn("1", self.producer._seen_ids)
+
+        self.producer.delivery_report(None, mock_msg)
+        self.assertIn("1", self.producer._seen_ids)
+
+    def test_a_full_queue_is_drained_and_retried(self):
+        """BufferError is backpressure; poll() frees the slots again."""
+        mock_producer = MagicMock()
+        mock_producer.produce.side_effect = [BufferError("queue full"), None]
+        self.producer.producer = mock_producer
+
+        self.producer._produce({"id": "1"})
+
+        self.assertEqual(mock_producer.produce.call_count, 2)
+        mock_producer.poll.assert_any_call(1)
 
     def test_produce_events(self):
         # Mock fetch_events to return test data

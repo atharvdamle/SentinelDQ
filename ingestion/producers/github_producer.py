@@ -7,33 +7,52 @@ import requests
 from collections import OrderedDict
 from confluent_kafka import Producer
 from dotenv import load_dotenv
-from pythonjsonlogger import jsonlogger
 
-# Configure logging
-log_handler = logging.StreamHandler()
-log_handler.setFormatter(jsonlogger.JsonFormatter())
-logging.basicConfig(level=logging.INFO, handlers=[log_handler])
+from ingestion.config import configure_logging, require
+
+configure_logging()
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 # The events endpoint exposes 10 pages of 30; there is nothing beyond that.
 MAX_PAGES = 10
 # Enough id history to outlast many polls, since one poll can add at most 300.
 SEEN_IDS_CAPACITY = 5000
+# Generous next to GitHub's own 60s poll interval, but finite: an unbounded
+# request hangs the poll loop forever.
+REQUEST_TIMEOUT_SECONDS = 30
+FLUSH_TIMEOUT_SECONDS = 30
 
 
 class GitHubEventsProducer:
     def __init__(self):
-        self.api_url = os.getenv("GITHUB_EVENTS_URL")
+        self.api_url = require("GITHUB_EVENTS_URL")
         self.poll_interval = int(os.getenv("GITHUB_POLL_INTERVAL_SECONDS", "60"))
         self.headers = {"Accept": "application/vnd.github.v3+json"}
         if github_token := os.getenv("GITHUB_TOKEN"):
             self.headers["Authorization"] = f"Bearer {github_token}"
+        self.session = requests.Session()
 
+        self.topic = require("KAFKA_TOPIC")
         self.producer = Producer(
-            {"bootstrap.servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS"), "client.id": "github_events_producer"}
+            {
+                "bootstrap.servers": require("KAFKA_BOOTSTRAP_SERVERS"),
+                "client.id": "github_events_producer",
+                "acks": "all",
+                "enable.idempotence": True,
+                "linger.ms": 50,
+                "compression.type": "snappy",
+                # Shorter than librdkafka's 5 minutes: a message that cannot be
+                # delivered within two poll intervals should fail its callback
+                # so the id stays unseen and is refetched.
+                "message.timeout.ms": 120000,
+            }
         )
-        self.topic = os.getenv("KAFKA_TOPIC")
         self._running = True
+        self._delivered = 0
+        self._failed = 0
 
         # Cursor state. The feed is ordered by id, and ids -- unlike created_at
         # -- are monotonic with that order, so they are the only safe cursor.
@@ -108,7 +127,7 @@ class GitHubEventsProducer:
             headers["If-None-Match"] = self._etag
 
         try:
-            response = requests.get(url, headers=headers)
+            response = self.session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         except Exception as e:
             logger.error(f"Error fetching events from GitHub API: {e}")
             return None
@@ -155,30 +174,57 @@ class GitHubEventsProducer:
             self._seen_ids.popitem(last=False)
 
     def delivery_report(self, err, msg):
-        """Callback for Kafka producer delivery reports."""
+        """Callback for Kafka producer delivery reports.
+
+        An id becomes "seen" only once the broker has acknowledged it. Marking
+        at enqueue time made a failed delivery unrecoverable: the id would
+        never be fetched again, so the event was lost with only a log line.
+        """
         if err is not None:
+            self._failed += 1
             logger.error(f"Message delivery failed: {err}")
-        else:
-            logger.debug(f"Message delivered to {msg.topic()} [{msg.partition()}]")
+            return
+
+        self._delivered += 1
+        self._mark_seen(msg.key().decode())
+        logger.debug(f"Message delivered to {msg.topic()} [{msg.partition()}]")
 
     def produce_events(self):
         """Fetch and produce GitHub events to Kafka."""
         events = self.fetch_events()
+        self._delivered = 0
+        self._failed = 0
 
         for event in events:
+            self._produce(event)
+
+        # flush() drains the delivery callbacks, so the counts are final here.
+        # Its return value is what is still queued after the timeout.
+        queued = self.producer.flush(FLUSH_TIMEOUT_SECONDS)
+        logger.info(
+            f"Delivered {self._delivered}/{len(events)} events to Kafka topic {self.topic} "
+            f"({self._failed} failed, {queued} still queued)"
+        )
+
+    def _produce(self, event):
+        """Enqueue one event, draining the queue once if it is full."""
+        for _ in range(2):
             try:
                 self.producer.produce(
                     self.topic, key=str(event["id"]), value=json.dumps(event), callback=self.delivery_report
                 )
                 self.producer.poll(0)  # Trigger delivery reports
-                # Only now is the event someone else's problem; an id marked
-                # seen is never fetched again.
-                self._mark_seen(str(event["id"]))
+                return
+            except BufferError:
+                # A full queue is backpressure, not a failure: poll() serves
+                # the pending delivery reports, which frees the slots again.
+                logger.warning(f"Producer queue full, draining before retrying event {event['id']}")
+                self.producer.poll(1)
             except Exception as e:
                 logger.error(f"Error producing event to Kafka: {e}")
+                return
 
-        self.producer.flush()
-        logger.info(f"Produced {len(events)} events to Kafka topic {self.topic}")
+        logger.error(f"Producer queue still full, dropping event {event['id']} for this poll")
 
     def stop(self):
         """Gracefully stop polling."""
