@@ -1,9 +1,10 @@
 import os
 import json
+import time
 import signal
 import logging
 import requests
-from confluent_kafka import Consumer, KafkaError
+from confluent_kafka import Consumer, KafkaError, Producer, TopicPartition
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 
@@ -20,21 +21,28 @@ load_dotenv()
 
 class PostgresConsumer:
     def __init__(self):
-        # Kafka configuration
+        # Kafka configuration. Offsets are committed by hand, after the write.
+        self.bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
         self.consumer = Consumer(
             {
-                "bootstrap.servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS"),
+                "bootstrap.servers": self.bootstrap_servers,
                 "group.id": "github_events_postgres_consumer",
                 "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
             }
         )
         self.topic = os.getenv("KAFKA_TOPIC")
+        self.dlq_topic = f"{self.topic}.dlq"
+        self._dlq_producer = None
         self._running = True
 
         self.repository = EventRepository()
         self.batch_size = int(os.getenv("INGEST_BATCH_SIZE", "100"))
         self.flush_interval_seconds = float(os.getenv("INGEST_FLUSH_INTERVAL", "5"))
+        self.max_write_attempts = 3
+        self.retry_backoff_seconds = 1.0
         self._pending = []
+        self._offsets = {}
         self._last_flush = datetime.now(timezone.utc)
 
         # Validator endpoint (env-configurable)
@@ -48,8 +56,13 @@ class PostgresConsumer:
         """Create any missing tables and indexes. The DDL lives in db/schema.py."""
         db.init_schema()
 
-    def store_event(self, event):
-        """Store a single event in PostgreSQL."""
+    def store_event(self, event, msg):
+        """Buffer a single event for the next write to PostgreSQL.
+
+        Returns False when the event must be redelivered -- the validator was
+        unreachable, so its verdict is unknown and its offset must not advance.
+        A FAIL verdict is a decision, not a failure, so it returns True.
+        """
         fallback_env = os.getenv("VALIDATOR_FALLBACKS", "")
         fallback_list = [u.strip() for u in fallback_env.split(",") if u.strip()]
         default_fallbacks = ["http://localhost:8000/validate", "http://host.docker.internal:8000/validate"]
@@ -74,11 +87,13 @@ class PostgresConsumer:
         if status is None:
             logger.error(f"Validator call failed (fail-closed). Attempts: {try_urls}. Last error: {last_err}")
             # Fail-closed: do not store the event if validator is unavailable
-            return
+            return False
+
+        self._offsets[(msg.topic(), msg.partition())] = msg.offset() + 1
 
         if status == "FAIL":
             logger.info(f"Event {event.get('id')} failed validation. Skipping insert.")
-            return
+            return True
 
         self._pending.append(
             {
@@ -108,24 +123,69 @@ class PostgresConsumer:
         if len(self._pending) >= self.batch_size:
             self.flush()
 
+        return True
+
     def flush(self):
-        """Write pending events. Clears the buffer only on a successful write."""
+        """Write pending events, then commit the offsets they cover.
+
+        The buffer survives a failed write, so a database outage costs nothing
+        but latency. Only a batch that has exhausted its retries and reached
+        the dead-letter topic is dropped.
+        """
         self._last_flush = datetime.now(timezone.utc)
-        if not self._pending:
+
+        if self._pending:
+            if not self._write_with_retries() and not self._dead_letter():
+                return
+            self._pending = []
+
+        self._commit()
+
+    def _write_with_retries(self):
+        """Write the buffer, backing off between attempts. True once written."""
+        delay = self.retry_backoff_seconds
+        for attempt in range(1, self.max_write_attempts + 1):
+            try:
+                self.repository.save_batch(self._pending)
+                return True
+            except Exception as e:
+                logger.error(
+                    f"Error storing {len(self._pending)} events in PostgreSQL "
+                    f"(attempt {attempt}/{self.max_write_attempts}): {e}"
+                )
+                if attempt < self.max_write_attempts:
+                    time.sleep(delay)
+                    delay *= 2
+        return False
+
+    def _dead_letter(self):
+        """Publish the unwritable buffer to the DLQ. True once it is safely there."""
+        try:
+            if self._dlq_producer is None:
+                self._dlq_producer = Producer({"bootstrap.servers": self.bootstrap_servers})
+            for row in self._pending:
+                self._dlq_producer.produce(self.dlq_topic, json.dumps(row["raw"]).encode("utf-8"))
+            undelivered = self._dlq_producer.flush(30)
+            if undelivered:
+                raise RuntimeError(f"{undelivered} messages still queued")
+        except Exception as e:
+            logger.error(f"Dead-lettering to {self.dlq_topic} failed, retaining {len(self._pending)} events: {e}")
+            return False
+
+        logger.error(
+            f"Dead-lettered {len(self._pending)} events to {self.dlq_topic} "
+            f"after {self.max_write_attempts} failed writes"
+        )
+        return True
+
+    def _commit(self):
+        """Commit the offsets of every message the pipeline has finished with."""
+        if not self._offsets:
             return
 
-        try:
-            self.repository.save_batch(self._pending)
-        except Exception as e:
-            logger.error(f"Error storing {len(self._pending)} events in PostgreSQL: {e}")
-            raise
-        finally:
-            # The batch is dropped either way: on success it is written, and on
-            # failure retrying it would stall the consumer on a poison event.
-            # Kafka offsets auto-commit on a timer regardless of what happened
-            # here, so a failed batch is lost -- see IMPROVEMENTS.md F9, which
-            # covers manual offset commits and a dead-letter path.
-            self._pending = []
+        offsets = [TopicPartition(topic, partition, offset) for (topic, partition), offset in self._offsets.items()]
+        self.consumer.commit(offsets=offsets, asynchronous=False)
+        self._offsets = {}
 
     def stop(self):
         """Gracefully stop consuming."""
@@ -152,10 +212,14 @@ class PostgresConsumer:
 
                 try:
                     event = json.loads(msg.value())
-                    self.store_event(event)
+                    handled = self.store_event(event, msg)
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}")
+                    logger.error(f"Error processing message at offset {msg.offset()}: {e}")
+                    self._offsets[(msg.topic(), msg.partition())] = msg.offset() + 1
                     continue
+
+                if not handled:
+                    self._rewind(msg)
 
                 self._flush_if_due()
 
@@ -169,6 +233,16 @@ class PostgresConsumer:
             self.consumer.close()
             db.close_pool()
             logger.info("Consumer closed")
+
+    def _rewind(self, msg):
+        """Replay this message on the next poll, after pausing for the backoff.
+
+        Buffered events sit at lower offsets, so they stay flushable and
+        committable while this one is retried.
+        """
+        logger.warning(f"Rewinding to offset {msg.offset()} on partition {msg.partition()} to retry")
+        self.consumer.seek(TopicPartition(msg.topic(), msg.partition(), msg.offset()))
+        time.sleep(self.retry_backoff_seconds)
 
     def _flush_if_due(self):
         """Flush once the buffer has been waiting longer than the interval."""

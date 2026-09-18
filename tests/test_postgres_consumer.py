@@ -55,6 +55,14 @@ class TestPostgresConsumer(unittest.TestCase):
         response.raise_for_status.return_value = None
         return patch("ingestion.consumers.postgres_consumer.requests.post", return_value=response)
 
+    def message(self, offset=0):
+        """A Kafka message carrying only the coordinates store_event commits."""
+        msg = MagicMock()
+        msg.topic.return_value = self.mock_env["KAFKA_TOPIC"]
+        msg.partition.return_value = 0
+        msg.offset.return_value = offset
+        return msg
+
     def test_init_db_delegates_to_the_shared_schema(self):
         """DDL lives in db/schema.py, not in the consumer."""
         _, _, mock_init_schema = self.build_consumer()
@@ -66,7 +74,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
 
         with self.validated():
-            consumer.store_event(self.mock_event)
+            consumer.store_event(self.mock_event, self.message())
 
         consumer.repository.save_batch.assert_not_called()
         self.assertEqual(len(consumer._pending), 1)
@@ -78,7 +86,7 @@ class TestPostgresConsumer(unittest.TestCase):
         with self.validated():
             for index in range(5):
                 event = dict(self.mock_event, id=str(index))
-                consumer.store_event(event)
+                consumer.store_event(event, self.message(index))
         consumer.flush()
 
         consumer.repository.save_batch.assert_called_once()
@@ -90,7 +98,7 @@ class TestPostgresConsumer(unittest.TestCase):
 
         with self.validated():
             for index in range(3):
-                consumer.store_event(dict(self.mock_event, id=str(index)))
+                consumer.store_event(dict(self.mock_event, id=str(index)), self.message(index))
 
         consumer.repository.save_batch.assert_called_once()
         self.assertEqual(consumer._pending, [])
@@ -99,7 +107,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
 
         with self.validated():
-            consumer.store_event(self.mock_event)
+            consumer.store_event(self.mock_event, self.message())
 
         columns = consumer._pending[0]["columns"]
         self.assertEqual(columns["event_id"], self.mock_event["id"])
@@ -114,7 +122,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
 
         with self.validated():
-            consumer.store_event(self.mock_event)
+            consumer.store_event(self.mock_event, self.message())
 
         created_at = consumer._pending[0]["columns"]["created_at"]
         self.assertEqual(created_at.tzinfo, timezone.utc)
@@ -126,7 +134,7 @@ class TestPostgresConsumer(unittest.TestCase):
         event = dict(self.mock_event, created_at="2025-10-20T12:00:00.123456Z")
 
         with self.validated():
-            consumer.store_event(event)
+            consumer.store_event(event, self.message())
 
         created_at = consumer._pending[0]["columns"]["created_at"]
         self.assertEqual(created_at.tzinfo, timezone.utc)
@@ -137,7 +145,7 @@ class TestPostgresConsumer(unittest.TestCase):
         event = dict(self.mock_event, created_at="2025-10-20T12:00:00+00:00")
 
         with self.validated():
-            consumer.store_event(event)
+            consumer.store_event(event, self.message())
 
         self.assertIsNotNone(consumer._pending[0]["columns"]["created_at"].tzinfo)
 
@@ -145,7 +153,7 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer, _, _ = self.build_consumer()
 
         with self.validated(status="FAIL"):
-            consumer.store_event(self.mock_event)
+            consumer.store_event(self.mock_event, self.message())
 
         self.assertEqual(consumer._pending, [])
 
@@ -158,21 +166,69 @@ class TestPostgresConsumer(unittest.TestCase):
             "ingestion.consumers.postgres_consumer.requests.post",
             side_effect=requests.exceptions.ConnectionError("down"),
         ):
-            consumer.store_event(self.mock_event)
+            consumer.store_event(self.mock_event, self.message())
 
         self.assertEqual(consumer._pending, [])
 
-    def test_flush_failure_clears_the_buffer_and_raises(self):
+    def test_flush_commits_only_after_a_successful_write(self):
         consumer, _, _ = self.build_consumer()
+        consumer.batch_size = 1000
+
+        with self.validated():
+            consumer.store_event(self.mock_event, self.message(7))
+        consumer.consumer.commit.assert_not_called()
+        consumer.flush()
+
+        consumer.consumer.commit.assert_called_once()
+        committed = consumer.consumer.commit.call_args[1]["offsets"][0]
+        self.assertEqual(committed.offset, 8)
+        self.assertFalse(consumer.consumer.commit.call_args[1]["asynchronous"])
+
+    def test_flush_failure_retains_the_batch_and_does_not_commit(self):
+        """A database outage must cost latency, not events."""
+        consumer, _, _ = self.build_consumer()
+        consumer.retry_backoff_seconds = 0
         consumer.repository.save_batch.side_effect = Exception("Database error")
 
         with self.validated():
-            consumer.store_event(self.mock_event)
-
-        with self.assertRaises(Exception):
+            consumer.store_event(self.mock_event, self.message())
+        with patch.object(consumer, "_dead_letter", return_value=False):
             consumer.flush()
-        # The batch is dropped rather than retried forever on a poison event.
+
+        self.assertEqual(len(consumer._pending), 1)
+        consumer.consumer.commit.assert_not_called()
+
+    def test_an_unwritable_batch_is_dead_lettered_then_committed(self):
+        consumer, _, _ = self.build_consumer()
+        consumer.retry_backoff_seconds = 0
+        consumer.repository.save_batch.side_effect = Exception("Database error")
+
+        with self.validated():
+            consumer.store_event(self.mock_event, self.message())
+        with patch("ingestion.consumers.postgres_consumer.Producer") as mock_producer:
+            mock_producer.return_value.flush.return_value = 0
+            consumer.flush()
+
+        self.assertEqual(consumer.repository.save_batch.call_count, consumer.max_write_attempts)
+        mock_producer.return_value.produce.assert_called_once()
+        self.assertEqual(mock_producer.return_value.produce.call_args[0][0], "github_events.dlq")
         self.assertEqual(consumer._pending, [])
+        consumer.consumer.commit.assert_called_once()
+
+    def test_an_unreachable_validator_leaves_the_offset_uncommitted(self):
+        import requests
+
+        consumer, _, _ = self.build_consumer()
+
+        with patch(
+            "ingestion.consumers.postgres_consumer.requests.post",
+            side_effect=requests.exceptions.ConnectionError("down"),
+        ):
+            handled = consumer.store_event(self.mock_event, self.message(3))
+        consumer.flush()
+
+        self.assertFalse(handled)
+        consumer.consumer.commit.assert_not_called()
 
     def test_start_consuming(self):
         consumer, _, _ = self.build_consumer()

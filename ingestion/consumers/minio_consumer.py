@@ -1,12 +1,12 @@
 import os
 import json
+import time
 import signal
 import logging
-import uuid
 from datetime import datetime
 import boto3
 from botocore.client import Config
-from confluent_kafka import Consumer, KafkaError
+from confluent_kafka import Consumer, KafkaError, TopicPartition
 from dotenv import load_dotenv
 
 # Configure logging with a more detailed format
@@ -31,11 +31,14 @@ class MinIOConsumer:
                 "bootstrap.servers": kafka_servers,
                 "group.id": "github_events_minio_consumer",
                 "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
             }
         )
         self.topic = os.getenv("KAFKA_TOPIC")
         logger.info(f"Will consume from Kafka topic: {self.topic}")
         self._running = True
+        self.max_put_attempts = 3
+        self.retry_backoff_seconds = 1.0
 
         # MinIO configuration
         self.host = os.getenv("MINIO_HOST", "localhost")
@@ -91,45 +94,58 @@ class MinIOConsumer:
                 logger.error(f"Failed to create bucket: {create_error}")
                 raise
 
-    def store_event(self, event):
-        """Store event JSON in MinIO."""
-        timestamp = datetime.utcnow()
-        date_path = timestamp.strftime("%Y-%m-%d")
-        time_path = timestamp.strftime("%H-%M-%S")
-        file_uuid = str(uuid.uuid4())
+    def object_key(self, event):
+        """Build the object key for an event.
 
+        Keyed by event id, and dated by the event's own timestamp rather than
+        the ingest clock, so a redelivered event overwrites its earlier copy
+        instead of landing beside it under a different path.
+        """
+        created_at = event.get("created_at", "")
+        date_path = created_at[:10] if len(created_at) >= 10 else datetime.utcnow().strftime("%Y-%m-%d")
+        return f"raw/{date_path}/{event.get('id', 'unknown')}.json"
+
+    def store_event(self, event):
+        """Store event JSON in MinIO, retrying before giving up on the write."""
         # Extract event metadata for logging
         event_id = event.get("id", "unknown")
         event_type = event.get("type", "unknown")
         repo_name = event.get("repo", {}).get("name", "unknown")
 
-        key = f"raw/{date_path}/{time_path}-{file_uuid}.json"
+        key = self.object_key(event)
         logger.info(f"Preparing to store event - ID: {event_id}, Type: {event_type}, Repo: {repo_name}")
 
-        try:
-            # Calculate event size for logging
-            event_json = json.dumps(event)
-            size_kb = len(event_json.encode("utf-8")) / 1024
+        event_json = json.dumps(event).encode("utf-8")
+        size_kb = len(event_json) / 1024
+        delay = self.retry_backoff_seconds
 
-            self.s3_client.put_object(
-                Bucket=self.bucket_name, Key=key, Body=event_json.encode("utf-8"), ContentType="application/json"
-            )
-            logger.info(
-                f"Successfully stored event in MinIO:\n"
-                f"  - Path: {key}\n"
-                f"  - Size: {size_kb:.2f} KB\n"
-                f"  - Event Type: {event_type}\n"
-                f"  - Event ID: {event_id}\n"
-                f"  - Repository: {repo_name}"
-            )
-        except Exception as e:
-            logger.error(
-                f"Failed to store event in MinIO:\n"
-                f"  - Event ID: {event_id}\n"
-                f"  - Path: {key}\n"
-                f"  - Error: {str(e)}"
-            )
-            raise
+        for attempt in range(1, self.max_put_attempts + 1):
+            try:
+                self.s3_client.put_object(
+                    Bucket=self.bucket_name, Key=key, Body=event_json, ContentType="application/json"
+                )
+                logger.info(
+                    f"Successfully stored event in MinIO:\n"
+                    f"  - Path: {key}\n"
+                    f"  - Size: {size_kb:.2f} KB\n"
+                    f"  - Event Type: {event_type}\n"
+                    f"  - Event ID: {event_id}\n"
+                    f"  - Repository: {repo_name}"
+                )
+                return
+            except Exception as e:
+                logger.error(
+                    f"Failed to store event in MinIO "
+                    f"(attempt {attempt}/{self.max_put_attempts}):\n"
+                    f"  - Event ID: {event_id}\n"
+                    f"  - Path: {key}\n"
+                    f"  - Error: {str(e)}"
+                )
+                if attempt < self.max_put_attempts:
+                    time.sleep(delay)
+                    delay *= 2
+
+        raise RuntimeError(f"Could not store event {event_id} at {key} after {self.max_put_attempts} attempts")
 
     def stop(self):
         """Gracefully stop consuming."""
@@ -173,10 +189,21 @@ class MinIOConsumer:
 
                 try:
                     event = json.loads(msg.value())
+                except Exception as e:
+                    logger.error(f"Skipping unreadable message at offset {msg.offset()}: {e}")
+                    self.consumer.commit(message=msg, asynchronous=False)
+                    continue
+
+                try:
                     self.store_event(event)
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}")
+                    # Uncommitted and rewound: the event is replayed rather than
+                    # skipped past once MinIO comes back.
+                    logger.error(f"Rewinding to offset {msg.offset()} on partition {msg.partition()}: {e}")
+                    self.consumer.seek(TopicPartition(msg.topic(), msg.partition(), msg.offset()))
                     continue
+
+                self.consumer.commit(message=msg, asynchronous=False)
 
         except KeyboardInterrupt:
             logger.info("Received shutdown signal")
