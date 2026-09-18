@@ -59,9 +59,9 @@ class PostgresConsumer:
     def store_event(self, event, msg):
         """Buffer a single event for the next write to PostgreSQL.
 
-        Returns False when the event must be redelivered -- the validator was
-        unreachable, so its verdict is unknown and its offset must not advance.
-        A FAIL verdict is a decision, not a failure, so it returns True.
+        Returns False only when the validator was unreachable, so the offset
+        must not advance. A FAIL is skipped unless its sole cause is the
+        duplicate check (see _is_duplicate_redelivery).
         """
         fallback_env = os.getenv("VALIDATOR_FALLBACKS", "")
         fallback_list = [u.strip() for u in fallback_env.split(",") if u.strip()]
@@ -69,6 +69,7 @@ class PostgresConsumer:
         try_urls = [self.validator_url] + fallback_list + default_fallbacks
 
         status = None
+        failures = []
         last_err = None
         for url in try_urls:
             try:
@@ -76,6 +77,7 @@ class PostgresConsumer:
                 resp.raise_for_status()
                 v = resp.json()
                 status = v.get("status")
+                failures = v.get("failures", [])
                 # update validator_url to the working one for future calls
                 self.validator_url = url
                 break
@@ -91,7 +93,7 @@ class PostgresConsumer:
 
         self._offsets[(msg.topic(), msg.partition())] = msg.offset() + 1
 
-        if status == "FAIL":
+        if status == "FAIL" and not _is_duplicate_redelivery(failures):
             logger.info(f"Event {event.get('id')} failed validation. Skipping insert.")
             return True
 
@@ -254,6 +256,16 @@ class PostgresConsumer:
                 # Already logged in flush(); keep consuming rather than dying
                 # on one bad batch.
                 pass
+
+
+def _is_duplicate_redelivery(failures):
+    """True when the only critical failure is the validator's duplicate check.
+
+    Redeliveries always FAIL that check; storing them is a no-op thanks to
+    ON CONFLICT (event_id) DO NOTHING.
+    """
+    critical = [f for f in failures if f.get("severity") == "FAIL"]
+    return bool(critical) and all(f.get("check_type") == "duplicate" for f in critical)
 
 
 def _parse_created_at(value):
