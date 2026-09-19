@@ -1,0 +1,3 @@
+-r requirements.txt
+minio>=7.1.0
+colorama==0.4.6

@@ -4,13 +4,13 @@ Usage:
     python scripts/wait_and_run.py host1:port host2:port -- command arg1 arg2
 """
 
+import os
 import sys
 import socket
 import time
-import subprocess
 
 
-def wait_for_host(host: str, port: int, timeout: int = 60) -> bool:
+def wait_for_host(host: str, port: int, timeout: int) -> bool:
     start = time.time()
     while True:
         try:
@@ -49,10 +49,9 @@ def main():
         sys.exit(2)
 
     print("Starting command:", " ".join(cmd))
-    # Run the command and stream output
-    p = subprocess.Popen(cmd)
-    p.wait()
-    sys.exit(p.returncode)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execvp(cmd[0], cmd)
 
 
 if __name__ == "__main__":

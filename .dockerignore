@@ -1,0 +1,12 @@
+.env
+.git
+.venv
+data
+
+# Build and test artefacts
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+htmlcov
+.coverage

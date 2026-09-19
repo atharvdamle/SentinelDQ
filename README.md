@@ -277,18 +277,19 @@ match the severities they emit. Both are IMPROVEMENTS.md F24.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 ### Tests
 
 ```bash
-pytest tests/                       # unit tests
+pytest                              # unit tests
 pytest tests/test_db_pool.py        # one file
 pytest --cov=. --cov-report=html    # coverage
 ```
 
-Run `pytest tests/` rather than a bare `pytest` — the root-level `test_e2e.py` matches pytest's default
-collection glob and will try to start Docker (IMPROVEMENTS.md F3).
+`pytest.ini` sets `testpaths = tests`, so a bare `pytest` no longer picks up the root-level
+`test_e2e.py` (which starts Docker). Run that one explicitly: `python test_e2e.py`.
 
 There is no linter, formatter, or CI configured.
 

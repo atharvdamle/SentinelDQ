@@ -1,7 +1,5 @@
 # SentinelDQ Validation Rules for GitHub Events
-# Version: 1.0
-# Last Updated: 2025-12-19
-#
+
 # This file defines all validation rules for GitHub event data.
 # Rules are applied by the validation engine in the following order:
 #   1. Schema checks (required fields)
@@ -194,7 +192,7 @@ value_checks:
   # GitHub username format
   - field: "actor.login"
     check_type: "regex"
-    pattern: "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$"
+    pattern: "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?(\\[bot\\])?$"
     severity: "FAIL"
     error_message: "Invalid GitHub username format"
     
@@ -209,7 +207,6 @@ value_checks:
   - field: "actor.id"
     check_type: "range"
     min_value: 1
-    max_value: 999999999
     severity: "FAIL"
     error_message: "Actor ID must be a positive integer"
     
@@ -217,7 +214,6 @@ value_checks:
   - field: "repo.id"
     check_type: "range"
     min_value: 1
-    max_value: 999999999
     severity: "FAIL"
     error_message: "Repository ID must be a positive integer"
 
@@ -263,8 +259,8 @@ consistency_checks:
     rules:
       - if_field: "type"
         equals: "PushEvent"
-        then_required: ["payload.ref", "payload.commits"]
-        error_message: "PushEvent must have 'ref' and 'commits' in payload"
+        then_required: ["payload.ref"]
+        error_message: "PushEvent must have 'ref' in payload"
       
       - if_field: "type"
         equals: "IssuesEvent"
