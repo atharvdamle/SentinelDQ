@@ -1,7 +1,9 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import json
-from ingestion.producers.github_producer import REQUEST_TIMEOUT_SECONDS, GitHubEventsProducer
+import os
+import signal
+from ingestion.producers.github_producer import REQUEST_TIMEOUT_SECONDS, GitHubEventsProducer, main
 
 
 class TestGitHubEventsProducer(unittest.TestCase):
@@ -25,6 +27,16 @@ class TestGitHubEventsProducer(unittest.TestCase):
         # Requests now go through a pooled session, so patch that, not the
         # module-level requests.get.
         self.producer.session = MagicMock()
+
+    def response(self, status_code=200, events=(), headers=None, links=None):
+        """A stubbed GitHub API response for the session to return."""
+        mock_response = MagicMock()
+        mock_response.status_code = status_code
+        mock_response.json.return_value = list(events)
+        mock_response.raise_for_status.return_value = None
+        mock_response.headers = headers or {}
+        mock_response.links = links or {}
+        return mock_response
 
     def test_fetch_events_success(self):
         # Prepare mock response
@@ -60,6 +72,49 @@ class TestGitHubEventsProducer(unittest.TestCase):
 
         # Verify empty list is returned on error
         self.assertEqual(events, [])
+
+    def test_an_unchanged_feed_publishes_nothing(self):
+        """A conditional request that 304s is free and carries no events."""
+        self.producer._etag = 'W/"cafebabe"'
+        self.producer._seen_ids["1"] = None
+        self.producer.session.get.return_value = self.response(status_code=304)
+
+        events = self.producer.fetch_events()
+
+        self.assertEqual(events, [])
+        self.assertEqual(self.producer.session.get.call_args[1]["headers"]["If-None-Match"], 'W/"cafebabe"')
+
+    def test_already_seen_ids_are_not_republished(self):
+        """Overlapping polls used to refetch ids the validator then FAILed."""
+        self.producer._seen_ids["1"] = None
+        self.producer.session.get.return_value = self.response(events=[{"id": "1"}, {"id": "2"}])
+
+        events = self.producer.fetch_events()
+
+        self.assertEqual([event["id"] for event in events], ["2"])
+
+    def test_a_rate_limited_response_defers_the_next_poll(self):
+        """403 used to return [] and retry blindly a minute later."""
+        self.producer.session.get.return_value = self.response(status_code=403, headers={"Retry-After": "120"})
+
+        events = self.producer.fetch_events()
+
+        self.assertEqual(events, [])
+        self.assertEqual(self.producer._next_poll_delay, 121)
+
+    def test_sigterm_stops_the_poll_loop_and_flushes(self):
+        """SIGTERM never reached the producer, so a poll was always lost."""
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            self.addCleanup(signal.signal, sig, signal.getsignal(sig))
+        mock_kafka = MagicMock()
+        self.producer.producer = mock_kafka
+        self.producer.fetch_events = MagicMock(side_effect=lambda: os.kill(os.getpid(), signal.SIGTERM) or [])
+
+        with patch("ingestion.producers.github_producer.GitHubEventsProducer", return_value=self.producer):
+            main()
+
+        self.assertFalse(self.producer._running)
+        mock_kafka.flush.assert_called_with()
 
     def test_a_failed_delivery_leaves_the_id_unseen(self):
         """An id marked seen at enqueue time would never be refetched."""

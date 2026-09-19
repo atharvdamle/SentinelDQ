@@ -1,8 +1,11 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import json
+import os
+import signal
 from datetime import datetime, timezone
-from ingestion.consumers.postgres_consumer import PostgresConsumer
+from ingestion.consumers.postgres_consumer import PostgresConsumer, main
+from tests.conftest import MOCK_EVENT, stops_after
 
 
 class TestPostgresConsumer(unittest.TestCase):
@@ -16,20 +19,7 @@ class TestPostgresConsumer(unittest.TestCase):
             "POSTGRES_HOST": "localhost",
             "POSTGRES_PORT": "5432",
         }
-        self.mock_event = {
-            "id": "12345",
-            "type": "PushEvent",
-            "repo": {"id": 98765, "name": "test/repo", "url": "https://api.github.com/repos/test/repo"},
-            "actor": {
-                "id": 11111,
-                "login": "testuser",
-                "url": "https://api.github.com/users/testuser",
-                "avatar_url": "https://avatars.githubusercontent.com/u/11111",
-            },
-            "payload": {"ref": "refs/heads/main", "head": "abcdef123", "before": "123456789", "push_id": 987654321},
-            "public": True,
-            "created_at": "2025-10-20T12:00:00Z",
-        }
+        self.mock_event = MOCK_EVENT
 
     def build_consumer(self):
         """Construct a consumer with Kafka and the database stubbed out.
@@ -48,14 +38,14 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer.repository = MagicMock()
         return consumer, mock_consumer, mock_init_schema
 
-    def validated(self, consumer, status="PASS"):
+    def validated(self, consumer, status="PASS", failures=()):
         """Stub the validator HTTP call, which store_event makes first.
 
         The call goes through the consumer's pooled session, so the patch has
         to land there rather than on the module's `requests`.
         """
         response = MagicMock()
-        response.json.return_value = {"status": status}
+        response.json.return_value = {"status": status, "failures": list(failures)}
         response.raise_for_status.return_value = None
         return patch.object(consumer.session, "post", return_value=response)
 
@@ -161,6 +151,37 @@ class TestPostgresConsumer(unittest.TestCase):
 
         self.assertEqual(consumer._pending, [])
 
+    def test_a_duplicate_only_failure_is_stored(self):
+        """At-least-once guarantees redeliveries, which always FAIL that check."""
+        consumer, _, _ = self.build_consumer()
+        failures = [{"check_type": "duplicate", "severity": "FAIL"}]
+
+        with self.validated(consumer, status="FAIL", failures=failures):
+            consumer.store_event(self.mock_event, self.message())
+
+        self.assertEqual(len(consumer._pending), 1)
+
+    def test_an_event_missing_optional_fields_is_stored(self):
+        """`public`, `payload` and the `*url` fields can all pass validation absent."""
+        consumer, _, _ = self.build_consumer()
+        event = {
+            "id": "999",
+            "type": "WatchEvent",
+            "repo": {"id": 1, "name": "test/repo"},
+            "actor": {"id": 2, "login": "testuser"},
+            "created_at": "2025-10-20T12:00:00Z",
+        }
+
+        with self.validated(consumer):
+            consumer.store_event(event, self.message())
+
+        self.assertEqual(len(consumer._pending), 1)
+        columns = consumer._pending[0]["columns"]
+        self.assertIsNone(columns["public"])
+        self.assertIsNone(columns["payload_ref"])
+        self.assertIsNone(columns["repo_url"])
+        self.assertIsNone(columns["actor_avatar"])
+
     def test_unreachable_validator_is_fail_closed(self):
         import requests
 
@@ -239,7 +260,7 @@ class TestPostgresConsumer(unittest.TestCase):
         mock_message = MagicMock()
         mock_message.error.return_value = None
         mock_message.value.return_value = json.dumps(self.mock_event).encode()
-        mock_kafka_consumer.poll.side_effect = [mock_message, KeyboardInterrupt]
+        mock_kafka_consumer.poll.side_effect = stops_after(consumer, mock_message)
 
         with patch.dict("os.environ", self.mock_env), patch(
             "ingestion.consumers.postgres_consumer.db.close_pool"
@@ -251,6 +272,26 @@ class TestPostgresConsumer(unittest.TestCase):
         consumer.store_event.assert_called_once()
         self.assertEqual(consumer.store_event.call_args[0][0], self.mock_event)
         mock_kafka_consumer.close.assert_called_once()
+
+    def test_sigterm_stops_consuming_and_flushes_the_buffer(self):
+        """The whole pending buffer used to die with the container."""
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            self.addCleanup(signal.signal, sig, signal.getsignal(sig))
+        consumer, _, _ = self.build_consumer()
+        consumer.batch_size = 1000
+
+        with self.validated(consumer):
+            consumer.store_event(self.mock_event, self.message())
+        consumer.consumer.poll.side_effect = lambda *_: os.kill(os.getpid(), signal.SIGTERM)
+
+        with patch("ingestion.consumers.postgres_consumer.PostgresConsumer", return_value=consumer), patch(
+            "ingestion.consumers.postgres_consumer.db.close_pool"
+        ):
+            main()
+
+        self.assertFalse(consumer._running)
+        consumer.repository.save_batch.assert_called_once()
+        consumer.consumer.commit.assert_called_once()
 
 
 if __name__ == "__main__":

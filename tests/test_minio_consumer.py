@@ -1,8 +1,11 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import json
+import os
+import signal
 from botocore.exceptions import ClientError
-from ingestion.consumers.minio_consumer import MinIOConsumer
+from ingestion.consumers.minio_consumer import MinIOConsumer, main
+from tests.conftest import MOCK_EVENT, stops_after
 
 
 class TestMinIOConsumer(unittest.TestCase):
@@ -25,14 +28,7 @@ class TestMinIOConsumer(unittest.TestCase):
             "MINIO_ACCESS_KEY": "testaccesskey",
             "MINIO_SECRET_KEY": "testsecretkey",
         }
-        self.mock_event = {
-            "id": "12345",
-            "type": "PushEvent",
-            "repo": {
-                "name": "test/repo",
-            },
-            "created_at": "2025-10-20T12:00:00Z",
-        }
+        self.mock_event = MOCK_EVENT
 
     @patch("boto3.client")
     def test_init_connection_success(self, mock_boto3_client):
@@ -43,9 +39,10 @@ class TestMinIOConsumer(unittest.TestCase):
 
         # Initialize consumer
         with patch.dict("os.environ", self.mock_env):
-            consumer = MinIOConsumer()
+            MinIOConsumer()
 
-        # Verify S3 client was created with correct parameters
+        # Verify S3 client was created with correct parameters. Certificate
+        # verification is off only because this endpoint is plain http.
         mock_boto3_client.assert_called_once_with(
             "s3",
             endpoint_url=f"http://{self.mock_env['MINIO_HOST']}:{self.mock_env['MINIO_API_PORT']}",
@@ -57,6 +54,20 @@ class TestMinIOConsumer(unittest.TestCase):
         )
 
     @patch("boto3.client")
+    def test_certificate_verification_follows_minio_secure(self, mock_boto3_client):
+        """verify=False was hardcoded, so TLS was unverified even over https."""
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+        mock_s3.list_buckets.return_value = {"Buckets": []}
+
+        with patch.dict("os.environ", dict(self.mock_env, MINIO_SECURE="True")):
+            MinIOConsumer()
+
+        kwargs = mock_boto3_client.call_args[1]
+        self.assertTrue(kwargs["verify"])
+        self.assertTrue(kwargs["endpoint_url"].startswith("https://"))
+
+    @patch("boto3.client")
     def test_init_connection_failure(self, mock_boto3_client):
         # Mock connection failure
         mock_s3 = MagicMock()
@@ -66,7 +77,7 @@ class TestMinIOConsumer(unittest.TestCase):
         # Verify consumer initialization raises exception
         with patch.dict("os.environ", self.mock_env):
             with self.assertRaises(Exception):
-                consumer = MinIOConsumer()
+                MinIOConsumer()
 
     @patch("boto3.client")
     def test_init_bucket_exists(self, mock_boto3_client):
@@ -77,7 +88,7 @@ class TestMinIOConsumer(unittest.TestCase):
 
         # Initialize consumer
         with patch.dict("os.environ", self.mock_env):
-            consumer = MinIOConsumer()
+            MinIOConsumer()
 
         # Verify bucket creation was not attempted
         mock_s3.create_bucket.assert_not_called()
@@ -91,7 +102,7 @@ class TestMinIOConsumer(unittest.TestCase):
 
         # Initialize consumer
         with patch.dict("os.environ", self.mock_env):
-            consumer = MinIOConsumer()
+            MinIOConsumer()
 
         # Verify bucket was created
         mock_s3.create_bucket.assert_called_once_with(Bucket=self.mock_env["MINIO_BUCKET"])
@@ -150,11 +161,10 @@ class TestMinIOConsumer(unittest.TestCase):
         mock_message.topic.return_value = self.mock_env["KAFKA_TOPIC"]
         mock_message.partition.return_value = 0
         mock_message.offset.return_value = 4
-        mock_kafka_consumer.poll.side_effect = [mock_message, KeyboardInterrupt]
-
         with patch.dict("os.environ", self.mock_env):
             consumer = MinIOConsumer()
             consumer.store_event = MagicMock(side_effect=Exception("Storage error"))
+            mock_kafka_consumer.poll.side_effect = stops_after(consumer, mock_message)
             consumer.start_consuming()
 
         mock_kafka_consumer.commit.assert_not_called()
@@ -176,14 +186,13 @@ class TestMinIOConsumer(unittest.TestCase):
         mock_message.error.return_value = None
         mock_message.value.return_value = json.dumps(self.mock_event).encode()
 
-        # Set up consumer to return one message then raise KeyboardInterrupt
-        mock_kafka_consumer.poll.side_effect = [mock_message, KeyboardInterrupt]
-
         # Initialize consumer and start consuming
         with patch.dict("os.environ", self.mock_env):
             consumer = MinIOConsumer()
             # store_event returns the stored size, which the loop accumulates.
             consumer.store_event = MagicMock(return_value=1.5)
+            # One message, then the graceful stop a signal would request.
+            mock_kafka_consumer.poll.side_effect = stops_after(consumer, mock_message)
             consumer.start_consuming()
 
         # Verify consumer was subscribed to correct topic
@@ -196,6 +205,27 @@ class TestMinIOConsumer(unittest.TestCase):
         mock_kafka_consumer.commit.assert_called_once_with(message=mock_message, asynchronous=False)
 
         # Verify consumer was closed
+        mock_kafka_consumer.close.assert_called_once()
+
+    @patch("boto3.client")
+    def test_sigterm_stops_consuming_and_closes_the_consumer(self, mock_boto3_client):
+        """This loop was a bare `while True` with no clean group leave."""
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            self.addCleanup(signal.signal, sig, signal.getsignal(sig))
+        mock_kafka_consumer = MagicMock()
+        self.mock_kafka_consumer_class.return_value = mock_kafka_consumer
+        mock_kafka_consumer.poll.side_effect = lambda *_: os.kill(os.getpid(), signal.SIGTERM)
+
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+        mock_s3.list_buckets.return_value = {"Buckets": []}
+
+        with patch.dict("os.environ", self.mock_env):
+            consumer = MinIOConsumer()
+            with patch("ingestion.consumers.minio_consumer.MinIOConsumer", return_value=consumer):
+                main()
+
+        self.assertFalse(consumer._running)
         mock_kafka_consumer.close.assert_called_once()
 
 
