@@ -1,6 +1,6 @@
 services:
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.6.1
     ports:
       - "9092:9092"
     environment:
@@ -42,7 +42,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -56,9 +56,9 @@ services:
       - app-network
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   validator:
     build:
@@ -80,6 +80,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     command: ["python", "scripts/wait_and_run.py", "postgres:5432", "minio:9000", "--", "uvicorn", "data_validation.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
     ports:
       - "8000:8000"
     healthcheck:
@@ -102,7 +103,9 @@ services:
       KAFKA_TOPIC: ${KAFKA_TOPIC}
       GITHUB_EVENTS_URL: ${GITHUB_EVENTS_URL}
       GITHUB_POLL_INTERVAL_SECONDS: ${GITHUB_POLL_INTERVAL_SECONDS}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     command: ["python", "scripts/wait_and_run.py", "kafka:19092", "--", "python", "-m", "ingestion.producers.github_producer"]
+    restart: unless-stopped
     stop_grace_period: 30s
     networks:
       - app-network
@@ -127,7 +130,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      VALIDATOR_URL: http://validator:8000/validate
+      VALIDATOR_TIMEOUT: ${VALIDATOR_TIMEOUT:-5}
+      INGEST_BATCH_SIZE: ${INGEST_BATCH_SIZE:-100}
+      INGEST_FLUSH_INTERVAL: ${INGEST_FLUSH_INTERVAL:-5}
     command: ["python", "scripts/wait_and_run.py", "kafka:19092", "postgres:5432", "--", "python", "-m", "ingestion.consumers.postgres_consumer"]
+    restart: unless-stopped
     stop_grace_period: 30s
     networks:
       - app-network
@@ -137,8 +145,10 @@ services:
       context: .
       dockerfile: Dockerfile
     depends_on:
-      - kafka
-      - minio
+      kafka:
+        condition: service_started
+      minio:
+        condition: service_healthy
     environment:
       PYTHONUNBUFFERED: '1'
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
@@ -150,6 +160,7 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET}
       MINIO_SECURE: 'False'
     command: ["python", "scripts/wait_and_run.py", "kafka:19092", "minio:9000", "--", "python", "-m", "ingestion.consumers.minio_consumer"]
+    restart: unless-stopped
     stop_grace_period: 30s
     networks:
       - app-network
@@ -169,12 +180,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     command: ["python", "scripts/wait_and_run.py", "postgres:5432", "--", "python", "-m", "drift_engine.drift_service"]
+    restart: unless-stopped
     networks:
       - app-network
 
 volumes:
   postgres_data:
-  minio_data:
   kafka_data:
 
 networks:

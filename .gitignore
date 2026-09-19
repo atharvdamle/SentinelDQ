@@ -6,3 +6,4 @@ CLAUDE.md
 # The "." pattern above also hides these, and they belong in the repo.
 !.env.example
 !.gitignore
+!.dockerignore
